@@ -31,7 +31,9 @@ async def check(args):
     exec_command = command[:-2]
     subprocess.run([*exec_command, 'codex', '--no-daemon', '--version'], check=True, capture_output=True)
     print('Codex launcher accepts explicit daemon setting: passed')
-    sandbox = subprocess.run([*exec_command, 'codex', 'sandbox', '--', 'sh', '-c', 'printf CODEX_SANDBOX_OK'], check=True, capture_output=True, text=True)
+    sandbox = subprocess.run([*exec_command, 'codex', 'sandbox', '--', 'sh', '-c', 'printf CODEX_SANDBOX_OK'], capture_output=True, text=True)
+    if sandbox.returncode:
+        raise RuntimeError('Codex sandbox failed: ' + sandbox.stderr.strip())
     assert sandbox.stdout == 'CODEX_SANDBOX_OK'
     print('Codex sandboxed tool execution: passed')
     name = 'validation-' + uuid.uuid4().hex[:8]
