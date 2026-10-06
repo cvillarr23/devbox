@@ -20,7 +20,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest app/tests tests -q
       - run: node --test app/tests/*.test.cjs
-      - run: docker compose config --quiet
+      - run: cp .env.example .env && docker compose config --quiet
   image:
     needs: test
     runs-on: ubuntu-latest

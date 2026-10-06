@@ -1,12 +1,11 @@
 services:
   devbox:
     build: .
-    image: ghcr.io/cvillarr23/devbox:0.1.2
+    image: ghcr.io/cvillarr23/devbox:0.1.3
     ports:
       - "127.0.0.1:${DEVBOX_HOST_PORT:-7680}:7680"
     env_file:
-      - path: .env
-        required: false
+      - .env
     environment:
       DEVBOX_OPEN_TARGET: ${DEVBOX_OPEN_TARGET:-remote}
     volumes:
