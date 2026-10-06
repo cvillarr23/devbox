@@ -13,6 +13,7 @@ profile devbox-workspace flags=(attach_disconnected,mediate_deleted) {
   # DEVBOX_USERNS_RULE
   mount,
   umount,
+  pivot_root,
 
   # Keep mutable kernel controls inaccessible while allowing per-process
   # namespace UID/GID mappings and the sandbox's own proc mount.
