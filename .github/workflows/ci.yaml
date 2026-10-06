@@ -57,6 +57,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - run: sudo bash scripts/install-runtime-profiles.sh
+      - run: docker run --rm --entrypoint kubectl -v "$PWD/deploy/kubernetes:/tmp/deployment:ro" devbox-ci:latest kustomize /tmp/deployment | python tests/manifest_check.py
       - run: docker run -d --name devbox-ci --cap-drop ALL --security-opt no-new-privileges=true --security-opt seccomp=config/seccomp-docker.json --security-opt apparmor=devbox-workspace --shm-size=1g -p 127.0.0.1:17680:7680 devbox-ci:latest
       - run: python tests/container_smoke.py
       - if: always()

@@ -1,7 +1,7 @@
 services:
   devbox:
     build: .
-    image: ghcr.io/cvillarr23/devbox:0.1.5
+    image: ghcr.io/cvillarr23/devbox:0.1.6
     ports:
       - "127.0.0.1:${DEVBOX_HOST_PORT:-7680}:7680"
     env_file:

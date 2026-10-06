@@ -23,7 +23,7 @@ spec:
       terminationGracePeriodSeconds: 30
       containers:
         - name: devbox
-          image: ghcr.io/cvillarr23/devbox:0.1.5
+          image: ghcr.io/cvillarr23/devbox:0.1.6
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
