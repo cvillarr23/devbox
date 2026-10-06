@@ -53,7 +53,7 @@ def install_hooks(root, home, managed=False):
 def archive():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
-        for name in ('remote.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py'):
+        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py'):
             tar.add(ROOT / name, arcname=name)
         tar.add(ROOT.parent / 'config/zellij.kdl', arcname='zellij.kdl')
         tar.add(ROOT.parent / 'config/layout.kdl', arcname='layout.kdl')

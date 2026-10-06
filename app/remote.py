@@ -112,6 +112,9 @@ def rpc(request):
         if missing:
             raise ValueError('Missing dependencies: ' + ', '.join(missing))
         return {'version': 1}
+    if op == 'doctor':
+        import diagnostics
+        return diagnostics.report()
     if op == 'snapshot':
         return snapshot(request.get('sessions', []), request.get('responses', {}))
     if op == 'check':

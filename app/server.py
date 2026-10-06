@@ -13,6 +13,7 @@ from aiohttp import web
 import bootstrap
 import devbox_store as store
 import environments
+import diagnostics
 import session_details
 from runtime import Runtime
 
@@ -228,7 +229,7 @@ async def session(request):
         else:
             result = rt.browser.ack(name, data['id'], data['viewer'], data['status'])
         return web.json_response(result)
-    if action in ('open', 'forward', 'notes-command') and method == 'POST':
+    if action in ('open', 'forward', 'notes-command', 'doctor') and method == 'POST':
         return web.json_response(await rt.operation(name, 'notes' if action == 'notes-command' else action, data))
     raise web.HTTPNotFound()
 
@@ -255,7 +256,8 @@ async def targets(request):
 
 async def doctor(request):
     rt = request.app['runtime']
-    return web.json_response({'environments': list(rt.targets), 'sessions': [
+    report = await asyncio.to_thread(diagnostics.report)
+    return web.json_response({**report, 'environments': list(rt.targets), 'sessions': [
         {'name': n, 'connection': rt.status(n)['connection'], 'agents': [
             {k: a.get(k) for k in ('agent', 'pane', 'state', 'source', 'updated_at', 'pid', 'pid_start')}
             for a in rt.status(n)['agents']]} for n in rt.sessions],

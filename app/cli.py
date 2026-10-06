@@ -86,7 +86,7 @@ def main():
         forward.add_argument('--session', default=current_session())
         args = parser.parse_args(sys.argv[2:])
         if args.command == 'doctor':
-            result = request('/api/doctor')
+            result = invoke(current_session(), 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
         elif args.command == 'forward':
             result = invoke(args.session, 'forward', {'port': args.port})
         elif args.action == 'list':

@@ -66,7 +66,7 @@ button.danger{color:var(--danger);border-color:#e5484d66}
   <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="connection-status" role="status"></span>
 </nav>
 <div id="app">
-  <section id="browser-panel" hidden style="position:absolute;inset:0;z-index:4;background:var(--bg)"><nav style="padding:.5rem;display:flex;gap:1rem"><button class="btn" id="browser-hide">Back to terminal</button><button class="btn" id="browser-stop">Stop shared browser</button><span id="browser-error" role="alert"></span></nav><iframe id="browser-frame" title="Remote Chrome" allow="clipboard-read; clipboard-write" style="width:100%;height:calc(100% - 48px);border:0"></iframe></section>
+  <section id="browser-panel" hidden style="position:absolute;inset:0;z-index:6;background:var(--bg)"><nav style="padding:.5rem;display:flex;gap:1rem"><button class="btn" id="browser-hide">Back to terminal</button><button class="btn" id="browser-stop">Stop shared browser</button><span id="browser-error" role="alert"></span></nav><iframe id="browser-frame" title="Remote Chrome" allow="clipboard-read; clipboard-write" style="width:100%;height:calc(100% - 48px);border:0"></iframe></section>
   <iframe id="term" allow="clipboard-read; clipboard-write" title="terminal"></iframe>
   <div id="rail"><button id="open-btn" title="Show sidebar">◂</button></div>
   <aside id="sidebar">

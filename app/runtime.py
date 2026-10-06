@@ -204,6 +204,9 @@ class Runtime:
     async def operation(self, name, operation, args):
         if name not in self.sessions:
             raise ValueError('Unknown session')
+        if operation == 'doctor':
+            report = await self.remotes[name].call({'operation': 'doctor'}) if name in self.remotes else {}
+            return {**report, 'session': name, 'environment': self.sessions[name]['environment'], **self.status(name)}
         if operation == 'open':
             return await self.browser.open(name, args['url'], args.get('target', os.environ.get('DEVBOX_OPEN_TARGET', 'remote')))
         if operation == 'forward':
