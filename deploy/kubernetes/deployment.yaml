@@ -14,6 +14,7 @@ spec:
       labels:
         app: devbox
     spec:
+      enableServiceLinks: false
       automountServiceAccountToken: false
       securityContext:
         runAsUser: 1000
@@ -27,6 +28,8 @@ spec:
             - name: http
               containerPort: 7680
           env:
+            - name: DEVBOX_PORT
+              value: "7680"
             - name: HOME
               value: /data/home
             - name: DEVBOX_STATE_DIR
