@@ -15,8 +15,19 @@ async def check(args):
                    '--', 'cat', '/data/state/access-token']
     else:
         command = ['docker', 'exec', args.container, 'cat', '/data/access-token']
-    token = subprocess.check_output(command, text=True).strip()
     base = args.url.rstrip('/')
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as startup:
+        for _ in range(60):
+            try:
+                async with startup.get(base + '/healthz') as response:
+                    if response.status == 200:
+                        break
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                pass
+            await asyncio.sleep(.25)
+        else:
+            raise RuntimeError('Devbox did not become ready')
+    token = subprocess.check_output(command, text=True).strip()
     name = 'validation-' + uuid.uuid4().hex[:8]
     created = False
     async with aiohttp.ClientSession(headers={'Authorization': 'Bearer ' + token}) as client:
@@ -28,14 +39,6 @@ async def check(args):
                 if response.status >= 400:
                     raise RuntimeError(f'{method} {path}: {result.get("error", response.status)}')
                 return result
-        for _ in range(60):
-            try:
-                async with client.get(base + '/healthz') as response:
-                    if response.status == 200:
-                        break
-            except aiohttp.ClientError:
-                pass
-            await asyncio.sleep(.25)
         try:
             entry = await api('POST', '/api/sessions', {'name': name})
             created = True
