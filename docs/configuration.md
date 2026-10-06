@@ -54,3 +54,17 @@ Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and 
 Browser requests and remote forwarding use argument lists and quoted SSH commands. Environment targets come from operator-mounted configuration; the API does not accept arbitrary backend addresses. HTTP requests reject cross-origin mutations, and each viewer must claim a link before acknowledging it.
 
 In `proxy` authentication mode, protect the whole gateway, including `/s/`, `/browser/`, and `/api/`, with the upstream authentication layer. For local trials, use the default token mode and port-forwarding.
+
+## Runtime profiles
+
+Compose selects `config/seccomp-docker.json` and the named `devbox-workspace`
+AppArmor profile. Kubernetes selects the corresponding OCI profile
+`devbox.json` from the kubelet's seccomp directory and the same AppArmor name.
+The provided installer loads only these named profiles; it does not change
+global kernel settings, add outer capabilities, or bypass agent approval policies.
+
+`DEVBOX_APPARMOR_PROFILE` chooses the Compose AppArmor profile. On hosts without
+AppArmor, use `unconfined`; the custom seccomp filter and Codex's own sandbox
+remain enabled. Kubernetes nodes must have the OCI profile installed before
+scheduling this workload. `devbox doctor` reports whether actual sandbox
+execution succeeds, as well as tool versions and hook permissions.

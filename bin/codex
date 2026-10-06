@@ -1,2 +1,5 @@
 #!/bin/sh
+for arg in "$@"; do
+  if [ "$arg" = --no-daemon ]; then exec /usr/local/bin/codex "$@"; fi
+done
 exec /usr/local/bin/codex --no-daemon "$@"

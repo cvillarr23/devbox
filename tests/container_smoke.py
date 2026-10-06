@@ -28,6 +28,12 @@ async def check(args):
         else:
             raise RuntimeError('Devbox did not become ready')
     token = subprocess.check_output(command, text=True).strip()
+    exec_command = command[:-2]
+    subprocess.run([*exec_command, 'codex', '--no-daemon', '--version'], check=True, capture_output=True)
+    print('Codex launcher accepts explicit daemon setting: passed')
+    sandbox = subprocess.run([*exec_command, 'codex', 'sandbox', '--', 'sh', '-c', 'printf CODEX_SANDBOX_OK'], check=True, capture_output=True, text=True)
+    assert sandbox.stdout == 'CODEX_SANDBOX_OK'
+    print('Codex sandboxed tool execution: passed')
     name = 'validation-' + uuid.uuid4().hex[:8]
     created = False
     async with aiohttp.ClientSession(headers={'Authorization': 'Bearer ' + token}) as client:

@@ -28,7 +28,16 @@ def report():
             except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
                 entry['ok'] = False
         tools[name] = entry
-    return {'tools': tools, 'hook_permissions': {
+    sandbox = {'supported': False}
+    if shutil.which('codex'):
+        try:
+            result = subprocess.run(['codex', 'sandbox', '--', 'true'], capture_output=True, text=True, timeout=5)
+            sandbox['supported'] = result.returncode == 0
+            if result.returncode:
+                sandbox['error'] = result.stderr.strip().splitlines()[0][:300] if result.stderr.strip() else 'Sandbox probe failed'
+        except (OSError, subprocess.TimeoutExpired):
+            sandbox['error'] = 'Sandbox probe failed or timed out'
+    return {'sandbox': sandbox, 'tools': tools, 'hook_permissions': {
         'helper_readable': os.access(ROOT / 'devbox-status', os.R_OK),
         'codex_managed_readable': os.access('/etc/codex/requirements.toml', os.R_OK),
         'codex_user_readable': os.access(Path.home() / '.codex/hooks.json', os.R_OK),

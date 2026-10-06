@@ -1,7 +1,7 @@
 services:
   devbox:
     build: .
-    image: ghcr.io/cvillarr23/devbox:0.1.1
+    image: ghcr.io/cvillarr23/devbox:0.1.2
     ports:
       - "127.0.0.1:${DEVBOX_HOST_PORT:-7680}:7680"
     env_file:
@@ -14,6 +14,11 @@ services:
       - devbox-state:/data
       - ${DEVBOX_PROJECTS:-./workspace}:/workspace
       - ./config/environments.yaml:/etc/devbox/environments.yaml:ro
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./config/seccomp-docker.json
+      - apparmor=${DEVBOX_APPARMOR_PROFILE:-devbox-workspace}
     shm_size: 1gb
     restart: unless-stopped
     stop_grace_period: 30s

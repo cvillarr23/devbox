@@ -4,6 +4,32 @@ A personal development environment with browser terminals, Claude Code and Codex
 
 Each installation belongs to one trusted user. Share this project by deploying separate instances.
 
+## Runtime prerequisites
+
+Codex uses Bubblewrap's private namespaces for normal sandboxed tool execution.
+Default container policies block those operations. Devbox ships a dedicated
+AppArmor profile and a seccomp policy derived from Docker's default: other
+blocked syscalls stay blocked, while namespace/mount operations are enabled.
+Kernel namespace ownership checks, an unprivileged UID, dropped outer
+capabilities, and Codex's own filesystem/approval policies remain in force.
+
+On Linux hosts with AppArmor, install the profiles before starting devbox:
+
+```sh
+sudo bash scripts/install-runtime-profiles.sh
+```
+
+This installs only `/etc/apparmor.d/devbox-workspace` and
+`/var/lib/kubelet/seccomp/devbox.json`; it does not change global sysctls or
+existing profiles. Run it on each eligible Kubernetes node. Set
+`DEVBOX_KUBELET_SECCOMP_ROOT` if the kubelet uses another seccomp directory.
+On Docker hosts without AppArmor, set `DEVBOX_APPARMOR_PROFILE=unconfined`;
+for Kubernetes without AppArmor, use an overlay selecting AppArmor's
+`Unconfined` type while retaining the provided seccomp policy.
+
+See [OpenAI's sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing)
+and [Docker's seccomp documentation](https://docs.docker.com/engine/security/seccomp/).
+
 ## Docker quickstart
 
 ```sh

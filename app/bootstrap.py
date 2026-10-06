@@ -22,7 +22,7 @@ def install_hooks(root, home, managed=False):
                 path = Path('/etc/codex/requirements.toml')
                 text = '[features]\nhooks = true\n\n[hooks]\nmanaged_dir = ' + json.dumps(str(root)) + '\n'
                 for event in EVENTS:
-                    text += f'\n[[hooks.{event}]]\n[[hooks.{event}.hooks]]\ntype = "command"\ncommand = {json.dumps(command)}\ntimeout = 5\n'
+                    text += f'\n[[hooks.{event}]]\n[[hooks.{event}.hooks]]\ntype = "command"\ncommand = {json.dumps(command)}\ntimeout = {3 if event in ("SessionEnd", "Interrupt") else 5}\n'
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
                 continue
@@ -34,7 +34,7 @@ def install_hooks(root, home, managed=False):
         events = EVENTS if agent == 'codex' else EVENTS[:-1] + ['Notification']
         for event in events:
             groups = [g for g in hooks.get(event, []) if not any('devbox-status' in h.get('command', '') for h in g.get('hooks', []))]
-            group = {'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}
+            group = {'hooks': [{'type': 'command', 'command': command, 'timeout': 3 if event in ('SessionEnd', 'Interrupt') else 5}]}
             if event == 'Notification':
                 group['matcher'] = 'permission_prompt|elicitation_dialog'
             hooks[event] = groups + [group]
@@ -65,5 +65,5 @@ async def bootstrap(config):
     from environments import run, transport
     payload = archive()
     # Fixed program; data is transferred on stdin, never interpolated in shell commands.
-    program = 'import base64,io,os,pathlib,shutil,sys,tarfile\nroot=pathlib.Path.home()/".local/share/devbox"\nmissing=[x for x in ("python3","zellij") if not shutil.which(x)]\nif missing: raise SystemExit("Install required dependencies first: "+", ".join(missing))\ncodex=shutil.which("codex")\nroot.mkdir(parents=True,exist_ok=True)\ndata=base64.b64decode(sys.stdin.read())\nwith tarfile.open(fileobj=io.BytesIO(data),mode="r:gz") as t:\n for m in t.getmembers():\n  if m.name.startswith("/") or ".." in pathlib.Path(m.name).parts or m.issym() or m.islnk(): raise SystemExit("Invalid archive")\n t.extractall(root)\n(root/"bin").mkdir(exist_ok=True)\nimport shlex\nfor name in ("devbox","devbox-open","devbox-notes"):\n p=root/"bin"/name\n p.write_text("#!/bin/sh\\nexport DEVBOX_REMOTE=1\\nexec python3 "+shlex.quote(str(root/"cli.py"))+" "+name+" \\"$@\\"\\n")\n p.chmod(0o755)\nif codex and str(root/"bin") not in codex:\n p=root/"bin/codex"\n p.write_text("#!/bin/sh\\nexec "+shlex.quote(codex)+" --no-daemon \\"$@\\"\\n")\n p.chmod(0o755)\np=root/"bin/xdg-open"\np.write_text("#!/bin/sh\\nexec "+shlex.quote(str(root/"bin/devbox-open"))+" \\"$@\\"\\n")\np.chmod(0o755)\nsys.path.insert(0,str(root))\nfrom bootstrap import install_hooks\ninstall_hooks(root,pathlib.Path.home())\nprint("Installed helper and user hooks. Review Codex hooks with /hooks before relying on status.")\n'
+    program = (ROOT / 'remote_install.py').read_text()
     return (await run(transport(config, ['python3', '-c', program]), payload.encode(), timeout=60)).decode()

@@ -10,3 +10,5 @@ Devbox's MIT license applies to its own code. Included tools retain their respec
 - **Codex CLI** and **Claude Code**: pinned npm packages, with their upstream license notices retained in their installed packages.
 - **Google Chrome**: distributed under its original Google Chrome terms and bundled third-party notices. Devbox's MIT license does not apply to Chrome.
 - **Node, Python, kubectl**, and Python dependencies: their original upstream licenses apply.
+
+- **Docker seccomp policy**: https://github.com/moby/profiles, commit `2ceae35d351c156cb5a8efc0fdc4a08cf94569d8`. Apache-2.0; license preserved in `config/MOBY-LICENSE`. Devbox adds private namespace/mount support and resolves an OCI variant for Kubernetes.

@@ -10,4 +10,4 @@ configMapGenerator:
       - environments.yaml
 images:
   - name: ghcr.io/cvillarr23/devbox
-    newTag: 0.1.1
+    newTag: 0.1.2

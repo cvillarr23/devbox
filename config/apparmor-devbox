@@ -1,0 +1,23 @@
+#include <tunables/global>
+
+# This named profile is selected only by devbox containers. Bubblewrap and
+# Chrome need private user/mount/PID namespaces; kernel capability checks
+# still prevent the unprivileged user from changing the host's namespaces.
+profile devbox-workspace flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  network,
+  capability,
+  file,
+  signal (send, receive),
+  ptrace (read, readby, trace, tracedby),
+  # DEVBOX_USERNS_RULE
+  mount,
+  umount,
+
+  # Keep mutable kernel controls inaccessible while allowing per-process
+  # namespace UID/GID mappings and the sandbox's own proc mount.
+  deny /proc/sys/** wklx,
+  deny /proc/sysrq-trigger rwklx,
+  deny /proc/kcore rwklx,
+  deny /sys/** wklx,
+}
