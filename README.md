@@ -38,7 +38,7 @@ cd devbox
 mkdir -p workspace
 cp .env.example .env
 docker compose up -d --build
-docker compose exec devbox cat /data/access-token
+docker compose exec devbox sh -c 'cat /data/access-token; printf "\n"'
 ```
 
 Open <http://localhost:7680> and enter the access token. Create a session, choose its environment, and open its terminal. Change `DEVBOX_HOST_PORT` if port 7680 is already occupied.
@@ -53,13 +53,43 @@ The image supports Linux amd64. The initial release includes pinned Codex, Claud
 kubectl create namespace devbox-trial
 kubectl -n devbox-trial apply -k deploy/kubernetes
 kubectl -n devbox-trial rollout status deployment/devbox
-kubectl -n devbox-trial exec deployment/devbox -- cat /data/state/access-token
+kubectl -n devbox-trial exec deployment/devbox -- sh -c 'cat /data/state/access-token; printf "\n"'
 kubectl -n devbox-trial port-forward service/devbox 17860:7680
 ```
 
 Open <http://localhost:17860>. The manifests use one replica, a 20Gi ReadWriteOnce PVC, a ClusterIP Service, health probes, and a memory-backed `/dev/shm`. Customize storage, resources, and environment configuration with Kustomize. The default ServiceAccount token is not mounted.
 
 A container or pod replacement ends local processes. Project files, notes, browser profile, and session definitions persist; use **Reconnect** to start a new terminal. Reconnect never replays previous shell commands.
+
+## Shell and private dotfiles
+
+New local terminal panes use Zsh and a pinned Oh My Zsh installation. The
+first startup seeds shell configuration only when it is absent. Existing
+custom shell files are preserved, and existing panes keep their running shell.
+
+Supply personal dotfiles at runtime, for example at `~/dev/dotfiles`, then run:
+
+```sh
+devbox-setup-home --dotfiles "$HOME/dev/dotfiles" --roo-coder
+```
+
+This sources `zsh/zshrc` and `zsh/zshenv`, backs up existing shell files, and
+installs the initialized `claude/mcp-servers/roo-coder` submodule with uv and
+Python 3.12. Roo Coder is registered with both Claude and Codex; existing MCP
+registrations are preserved. Restart your shell with `exec zsh` or create a
+new session. Set `OLLAMA_BASE_URL`, `OLLAMA_HOST_HEADER`, and `QDRANT_URL` in
+your runtime environment as needed for Roo Coder's services.
+
+You can set `DEVBOX_DOTFILES_DIR` to select another mounted checkout. Startup
+configures its shell files but never downloads private repos or installs Roo
+Coder dependencies automatically. Bootstrap Roo Coder explicitly with the
+command above. No private dotfiles, Git credentials, secrets, or Roo Coder
+source are included in the public image. Copy an initialized checkout without
+its `.git` directories, or mount it using your deployment's configuration.
+
+The shell setup keeps the image's Claude launcher working and uses the local
+`devbox` CLI instead of a dotfiles shortcut to a separate host. Agent settings,
+hooks, account credentials, and plugin configuration are not replaced.
 
 ## Environments
 

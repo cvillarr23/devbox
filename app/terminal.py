@@ -12,7 +12,7 @@ if entry['target']['type'] == 'local':
     # Match remote helper's fixed config path without modifying mounted home.
     name = entry['name']
     os.chdir(entry['cwd'])
-    os.environ.update(DEVBOX_SESSION=name, BROWSER='/opt/devbox/bin/devbox-open')
+    os.environ.update(DEVBOX_SESSION=name, BROWSER='/opt/devbox/bin/devbox-open', SHELL='/bin/zsh')
     existing = subprocess.run(['zellij', 'list-sessions', '-s', '-n'], capture_output=True, text=True).stdout.splitlines()
     args = ['zellij', '--config', '/opt/devbox/config/zellij.kdl']
     args += ['attach', name] if name in existing else ['--new-session-with-layout', '/opt/devbox/config/layout.kdl', '--session', name]

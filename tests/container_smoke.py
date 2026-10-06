@@ -53,14 +53,17 @@ async def check(args):
             async with client.ws_connect(base + f'/s/{entry["port"] - 7690}/ws', protocols=['tty']) as ws:
                 await ws.send_str(json.dumps({'AuthToken': '', 'columns': 100, 'rows': 30}))
                 await asyncio.sleep(1)
-                await ws.send_bytes(b'0devbox-notes append "terminal command executed"\r')
+                await ws.send_bytes(b'0devbox-notes append "terminal command executed shell=$ZSH_VERSION omz=$ZSH"\r')
                 for _ in range(30):
                     notes = await api('GET', f'/api/sessions/{name}/notes')
                     if 'terminal command executed' in notes['content']:
                         break
                     await asyncio.sleep(.25)
                 assert 'terminal command executed' in notes['content'], notes
+                assert 'shell=5.' in notes['content'], notes
+                assert 'omz=' in notes['content'] and '.oh-my-zsh' in notes['content'], notes
                 print('Terminal WebSocket and notes CLI: passed')
+                print('New terminal uses Zsh and Oh My Zsh: passed')
                 link = await api('POST', f'/api/sessions/{name}/open', {'target': 'local', 'url': 'https://example.com'})
                 assert link['status'] == 'pending'
                 claim = await api('POST', f'/api/sessions/{name}/links/claim', {'id': link['id'], 'viewer': 'smoke'})

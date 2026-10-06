@@ -5,12 +5,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
 RUN git clone https://github.com/tsl0922/ttyd.git /src && cd /src && git checkout "$TTYD_COMMIT" && cmake -S . -B build && cmake --build build -j2 && tar --exclude=.git --exclude=build -czf /ttyd-source.tar.gz -C /src .
 
 FROM node:24.21.0-bookworm-slim
+COPY --from=ghcr.io/astral-sh/uv:0.12.23 /uv /uvx /usr/local/bin/
+ARG OH_MY_ZSH_COMMIT=60c9a7a839b790cd905d0fd4419435124fd1bdc0
 ARG ZELLIJ_VERSION=0.41.2
 ARG CODEX_VERSION=0.160.0
 ARG CLAUDE_VERSION=2.1.289
 ARG KUBECTL_VERSION=v1.35.8
 ARG CHROME_VERSION=154.0.8037.97-1
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client python3 python3-venv libjson-c5 libwebsockets17 libwebsockets-evlib-uv libuv1 libssl3 zlib1g tini xvfb x11vnc openbox novnc websockify fonts-liberation fonts-dejavu procps htop xauth && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zsh openssh-client python3 python3-venv libjson-c5 libwebsockets17 libwebsockets-evlib-uv libuv1 libssl3 zlib1g tini xvfb x11vnc openbox novnc websockify fonts-liberation fonts-dejavu procps htop xauth && rm -rf /var/lib/apt/lists/*
+RUN git clone https://github.com/ohmyzsh/ohmyzsh.git /opt/oh-my-zsh && git -C /opt/oh-my-zsh checkout "$OH_MY_ZSH_COMMIT" && rm -rf /opt/oh-my-zsh/.git
 RUN test "$(dpkg --print-architecture)" = amd64 && curl --retry 3 --retry-all-errors -fsSLo /tmp/chrome.deb "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${CHROME_VERSION}_amd64.deb" && apt-get update && apt-get install -y /tmp/chrome.deb && rm /tmp/chrome.deb && rm -rf /var/lib/apt/lists/*
 RUN curl --retry 3 --retry-all-errors -fsSLo /tmp/zellij.tar.gz "https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-x86_64-unknown-linux-musl.tar.gz" && tar -xzf /tmp/zellij.tar.gz -C /usr/local/bin zellij && rm /tmp/zellij.tar.gz
 RUN curl --retry 3 --retry-all-errors -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && curl --retry 3 --retry-all-errors -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256" && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c && chmod +x /usr/local/bin/kubectl && rm /tmp/kubectl.sha256
@@ -26,7 +29,7 @@ COPY app app
 COPY bin bin
 COPY config config
 RUN usermod -l devbox node && groupmod -n devbox node && usermod -d /home/devbox devbox && mkdir -p /home/devbox /workspace /data /etc/devbox && chown -R 1000:1000 /home/devbox /workspace /data && PYTHONPATH=/opt/devbox/app /opt/venv/bin/python -c 'from pathlib import Path; from bootstrap import install_hooks; install_hooks(Path("/opt/devbox/app"), "/home/devbox", managed=True)' && chown -R 1000:1000 /home/devbox
-ENV PATH="/opt/devbox/bin:/opt/venv/bin:${PATH}" HOME=/home/devbox DEVBOX_STATE_DIR=/data DEVBOX_WORKSPACE=/workspace DEVBOX_ENVIRONMENTS=/etc/devbox/environments.yaml BROWSER=/opt/devbox/bin/devbox-open
+ENV PATH="/opt/devbox/bin:/opt/venv/bin:${PATH}" HOME=/home/devbox SHELL=/bin/zsh DEVBOX_STATE_DIR=/data DEVBOX_WORKSPACE=/workspace DEVBOX_ENVIRONMENTS=/etc/devbox/environments.yaml BROWSER=/opt/devbox/bin/devbox-open
 USER 1000:1000
 EXPOSE 7680
 ENTRYPOINT ["/usr/bin/tini", "--"]

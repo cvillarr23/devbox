@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 mkdir -p "$HOME" "$DEVBOX_STATE_DIR" "${DEVBOX_WORKSPACE:-/workspace}"
+devbox-setup-home
 python3 - <<'PY'
 import os
 from pathlib import Path
