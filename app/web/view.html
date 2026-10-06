@@ -1,0 +1,366 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>devbox</title>
+<link id="favicon" rel="icon" href="data:,">
+<style>
+:root{
+  --bg:#0f1115;--panel:#161a21;--panel-2:#1d222b;--border:#2a303b;
+  --fg:#d7dae0;--muted:#8b93a1;--accent:#4b5563;--danger:#e5484d;--warn:#b7791f;
+  --sidebar-w:340px;color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--fg);font:13px/1.4 system-ui,sans-serif}
+body{display:flex;flex-direction:column;height:100dvh}
+#app{position:relative;display:flex;flex:1;min-height:0;overflow:hidden}
+#client-bar{flex:none;min-height:44px;display:flex;align-items:center;gap:.6rem;padding:0 .6rem;background:var(--panel);border-bottom:1px solid var(--border)}
+#client-bar label{margin:0;color:var(--fg)}
+#client-mode{width:auto;min-height:36px}
+#client-bar a{color:var(--fg);padding:.5rem}
+#client-status{color:var(--muted)}
+#term{display:block;flex:1;min-width:0;min-height:0;height:100%;border:0;background:#000}
+#rail{display:none;width:18px;background:var(--panel);border-left:3px solid var(--accent)}
+#rail button{width:100%;height:48px;padding:0;border:0;background:none;color:var(--muted);cursor:pointer}
+#sidebar{position:relative;width:var(--sidebar-w);display:flex;flex-direction:column;background:var(--panel);border-left:3px solid var(--accent)}
+body.collapsed #sidebar{display:none}
+body.collapsed #rail{display:block}
+#resizer{position:absolute;left:-5px;top:0;bottom:0;width:8px;cursor:col-resize;z-index:2}
+body.resizing #term{pointer-events:none}
+header{display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;border-bottom:1px solid var(--border)}
+header .titles{flex:1;min-width:0}
+#h-title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#h-name{color:var(--muted);font-size:.85em}
+header a,header button{color:var(--muted);background:none;border:0;cursor:pointer;font:inherit;text-decoration:none;padding:.2rem .35rem}
+header a:hover,header button:hover{color:var(--fg)}
+#widgets{flex:1;overflow:auto}
+.widget{border-bottom:1px solid var(--border)}
+.widget>h2{margin:0;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.widget>h2 button{all:unset;display:block;width:100%;padding:.55rem .6rem;cursor:pointer}
+.widget>h2 button::before{content:"▾ ";display:inline-block;width:1em}
+.widget.closed>h2 button::before{content:"▸ "}
+.widget.closed>.body{display:none}
+.widget>.body{padding:0 .6rem .7rem}
+.widget-error{color:var(--danger);white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:.85em}
+input,textarea,select{width:100%;background:var(--panel-2);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:.35rem .45rem;font:inherit}
+textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+label{display:block;margin:.5rem 0 .2rem;color:var(--muted);font-size:.85em}
+button.btn{background:var(--panel-2);color:var(--fg);border:1px solid var(--border);border-radius:4px;padding:.3rem .6rem;cursor:pointer;font:inherit}
+button.btn:hover{border-color:var(--muted)}
+button.danger{color:var(--danger);border-color:#e5484d66}
+.muted{color:var(--muted);font-size:.85em}
+.banner{background:#b7791f22;border:1px solid var(--warn);border-radius:4px;padding:.45rem;margin-bottom:.5rem}
+.banner .actions{display:flex;gap:.4rem;margin-top:.35rem}
+@media (max-width:700px){
+  #sidebar{position:absolute;right:0;top:0;bottom:0;width:min(90vw,360px);z-index:5;box-shadow:-8px 0 24px #0008}
+  #resizer{display:none}
+}
+</style>
+</head>
+<body>
+<nav id="client-bar" aria-label="Terminal display">
+  <a href="/" aria-label="All sessions">←</a>
+  <label for="client-mode">Display</label>
+  <select id="client-mode"><option value="auto">Auto</option><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select>
+  <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="connection-status" role="status"></span>
+</nav>
+<div id="app">
+  <section id="browser-panel" hidden style="position:absolute;inset:0;z-index:4;background:var(--bg)"><nav style="padding:.5rem;display:flex;gap:1rem"><button class="btn" id="browser-hide">Back to terminal</button><button class="btn" id="browser-stop">Stop shared browser</button><span id="browser-error" role="alert"></span></nav><iframe id="browser-frame" title="Remote Chrome" allow="clipboard-read; clipboard-write" style="width:100%;height:calc(100% - 48px);border:0"></iframe></section>
+  <iframe id="term" allow="clipboard-read; clipboard-write" title="terminal"></iframe>
+  <div id="rail"><button id="open-btn" title="Show sidebar">◂</button></div>
+  <aside id="sidebar">
+    <div id="resizer" title="Drag to resize"></div>
+    <header>
+      <a href="/" title="All sessions">←</a>
+      <div class="titles"><div id="h-title"></div><div id="h-name"></div></div>
+      <button id="close-btn" title="Hide sidebar">▸</button>
+    </header>
+    <div id="widgets"></div>
+  </aside>
+</div>
+<script src="/static/client-mode.js"></script>
+<script>
+const C = __DEVBOX_CONFIG__;
+const NAME = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] || '');
+
+// Android can resize only the visual viewport when its keyboard opens.
+// Size the outer layout first so the iframe receives the actual remaining area.
+function fitViewport() {
+  document.body.style.height = `${window.visualViewport?.height ?? innerHeight}px`;
+}
+window.visualViewport?.addEventListener('resize', fitViewport);
+addEventListener('resize', fitViewport);
+fitViewport();
+
+// Per-viewer UI state only (sidebar open/width, collapsed widgets).
+const prefs = {
+  get(k, d) { try { const v = localStorage.getItem('devbox.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('devbox.' + k, JSON.stringify(v)); } catch {} },
+};
+
+async function api(path, opts = {}) {
+  const init = {method: opts.method || 'GET', headers: {}};
+  if (opts.body !== undefined) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(opts.body);
+  }
+  const res = await fetch('/api/sessions/' + encodeURIComponent(NAME) + path, init);
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  return {ok: res.ok, status: res.status, data};
+}
+
+// --- widget registry -----------------------------------------------------
+// A widget is a file in web/widgets/ that calls devbox.registerWidget({...});
+// the dashboard lists that directory, so adding one needs no other edit.
+const widgets = [];
+const metaListeners = [];
+let meta = {};
+const term = document.getElementById('term');
+const focusTerminal = () => { try { term.contentWindow.focus(); } catch {} term.focus(); };
+
+window.devbox = {
+  registerWidget(w) {
+    if (!w || !w.id || typeof w.mount !== 'function') throw new Error('registerWidget needs {id, mount}');
+    widgets.push(w);
+  },
+};
+
+const ctx = {
+  session: NAME,
+  get meta() { return {...meta}; },
+  api,
+  async setMeta(patch) {
+    const r = await api('/meta', {method: 'PATCH', body: patch});
+    if (!r.ok) throw new Error((r.data && r.data.error) || 'save failed');
+    applyMeta(r.data);
+    return r.data;
+  },
+  onMetaChange(cb) { metaListeners.push(cb); },
+  // Agent status (Claude Code / Codex hooks via devbox-status):
+  // {state: idle|working|waiting|done, agents: [{pane, agent, state, since, acked}]}
+  get status() { return JSON.parse(JSON.stringify(status)); },
+  onStatusChange(cb) { statusListeners.push(cb); },
+  prefs,
+  focusTerminal,
+};
+
+function applyMeta(m) {
+  meta = m;
+  const title = m.title || NAME;
+  document.getElementById('h-title').textContent = title;
+  document.getElementById('h-name').textContent = m.title ? NAME : '';
+  document.documentElement.style.setProperty('--accent', m.color || '#4b5563');
+  renderChrome();
+  for (const cb of metaListeners) { try { cb({...m}); } catch (e) { console.error(e); } }
+}
+
+// --- agent status: favicon badge, title prefix, ack, notifications ------
+const STATUS_PREFIX = {working: '⏳ ', waiting: '❗ ', done: '✓ '};
+const NOTIFY_TEXT = {waiting: 'is waiting for input', done: 'finished'};
+const statusListeners = [];
+let status = {state: 'idle', agents: []};
+let statusLoaded = false;
+let spinFrame = 0;
+let doneTimer = null;
+const tabActive = () => document.visibilityState === 'visible' && document.hasFocus();
+
+// SVG favicons don't animate, so "working" is redrawn frame by frame.
+function iconSvg(color, state, frame) {
+  let dot = `<circle cx="16" cy="16" r="14" fill="${color}"/>`;
+  let badge = '';
+  if (state === 'working') {
+    dot = `<circle cx="16" cy="16" r="9" fill="${color}"/>`;
+    badge = `<circle cx="16" cy="16" r="13" fill="none" stroke="${color}" stroke-opacity=".35" stroke-width="4"/>` +
+      `<circle cx="16" cy="16" r="13" fill="none" stroke="#e5e7eb" stroke-width="4" stroke-linecap="round"` +
+      ` stroke-dasharray="22 60" transform="rotate(${frame * 45} 16 16)"/>`;
+  } else if (state === 'waiting') {
+    badge = '<circle cx="23" cy="23" r="9" fill="#f59e0b" stroke="#111" stroke-width="2"/>' +
+      '<rect x="21.6" y="17" width="2.8" height="7.5" rx="1.2" fill="#111"/><circle cx="23" cy="27.6" r="1.6" fill="#111"/>';
+  } else if (state === 'done') {
+    badge = '<circle cx="23" cy="23" r="9" fill="#22c55e" stroke="#111" stroke-width="2"/>' +
+      '<path d="M18.5 23.2l3 3 5.5-6" fill="none" stroke="#111" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${dot}${badge}</svg>`;
+}
+
+function renderChrome() {
+  document.title = (STATUS_PREFIX[status.state] || '') + (meta.title || NAME);
+  const svg = iconSvg(meta.color || '#4b5563', status.state, spinFrame);
+  document.getElementById('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+setInterval(() => {
+  if (status.state !== 'working') return;
+  spinFrame = (spinFrame + 1) % 8;
+  renderChrome();
+}, 250);
+
+function setStatus(next) {
+  const prev = status;
+  status = next;
+  document.getElementById('connection-status').textContent = next.connection === 'connected' ? '' : 'Disconnected — reconnect from the dashboard';
+  if (statusLoaded) notifyTransitions(prev, next);
+  statusLoaded = true;
+  renderChrome();
+  for (const cb of statusListeners) { try { cb(ctx.status); } catch (e) { console.error(e); } }
+  maybeAck(false);
+}
+
+async function pollStatus() {
+  try {
+    const r = await api('/status');
+    if (r.ok) setStatus(r.data);
+  } catch {}
+}
+
+// "done" is an unread marker: it clears once the tab has been looked at -
+// straight away when you come back to the tab, or after 5s if it finished
+// while you were already watching.
+function maybeAck(tabJustShown) {
+  if (status.state !== 'done') { clearTimeout(doneTimer); doneTimer = null; return; }
+  if (!tabActive()) return;
+  if (tabJustShown) { ackDone(); return; }
+  if (!doneTimer) {
+    doneTimer = setTimeout(() => {
+      doneTimer = null;
+      if (tabActive() && status.state === 'done') ackDone();
+    }, 5000);
+  }
+}
+async function ackDone() {
+  const r = await api('/status/ack', {method: 'POST', body: {}});
+  if (r.ok) setStatus(r.data);
+}
+document.addEventListener('visibilitychange', () => maybeAck(document.visibilityState === 'visible'));
+addEventListener('focus', () => maybeAck(true));
+
+function notifyTransitions(prev, next) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  if (!prefs.get('notify', true) || tabActive()) return;
+  const before = {};
+  for (const a of prev.agents) before[a.pane] = a.state;
+  for (const a of next.agents) {
+    if (!NOTIFY_TEXT[a.state] || before[a.pane] === a.state || (a.state === 'done' && a.acked)) continue;
+    const n = new Notification(`${meta.title || NAME}: ${a.agent} ${NOTIFY_TEXT[a.state]}`, {
+      tag: `devbox-${NAME}-${a.pane}`,
+      body: `pane ${a.pane}`,
+      icon: document.getElementById('favicon').href,
+    });
+    n.onclick = () => { window.focus(); focusTerminal(); n.close(); };
+  }
+}
+
+function mountWidget(w) {
+  const sec = document.createElement('section');
+  sec.className = 'widget';
+  const h = document.createElement('h2');
+  const btn = document.createElement('button');
+  btn.textContent = w.title || w.id;
+  h.appendChild(btn);
+  const body = document.createElement('div');
+  body.className = 'body';
+  sec.append(h, body);
+  const key = 'closed.' + w.id;
+  sec.classList.toggle('closed', prefs.get(key, false));
+  btn.onclick = () => prefs.set(key, sec.classList.toggle('closed'));
+  document.getElementById('widgets').appendChild(sec);
+  try {
+    const p = w.mount(body, ctx);
+    if (p && p.catch) p.catch((e) => showWidgetError(body, e));
+  } catch (e) {
+    showWidgetError(body, e);
+  }
+}
+
+function showWidgetError(body, e) {
+  const div = document.createElement('div');
+  div.className = 'widget-error';
+  div.textContent = 'Widget failed: ' + (e && e.message || e);
+  body.prepend(div);
+}
+
+function loadScript(src) {
+  return new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => { console.error('failed to load', src); resolve(); };
+    document.head.appendChild(s);
+  });
+}
+
+// --- sidebar open/close + resize ----------------------------------------
+function setCollapsed(c) {
+  document.body.classList.toggle('collapsed', c);
+  prefs.set('collapsed', c);
+  focusTerminal();
+}
+document.getElementById('close-btn').onclick = () => setCollapsed(true);
+document.getElementById('open-btn').onclick = () => setCollapsed(false);
+document.body.classList.toggle('collapsed', prefs.get('collapsed', matchMedia('(max-width:700px)').matches));
+const setWidth = (w) => document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+setWidth(prefs.get('width', 340));
+document.getElementById('resizer').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  document.body.classList.add('resizing');
+  const move = (ev) => setWidth(Math.min(Math.max(innerWidth - ev.clientX, 240), innerWidth * 0.7));
+  const up = () => {
+    document.body.classList.remove('resizing');
+    removeEventListener('pointermove', move);
+    removeEventListener('pointerup', up);
+    prefs.set('width', parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w')));
+    focusTerminal();
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', up);
+});
+
+// --- boot ----------------------------------------------------------------
+(async () => {
+  const r = await api('');
+  if (!r.ok) { document.body.textContent = 'No such session: ' + NAME; return; }
+  const s = r.data;
+  const offset = s.port - C.portStart;
+  const selector = document.getElementById('client-mode');
+  const validModes = ['auto', 'desktop', 'mobile'];
+  const queryMode = new URLSearchParams(location.search).get('display');
+  const savedMode = prefs.get('clientMode', 'auto');
+  selector.value = validModes.includes(queryMode) ? queryMode : validModes.includes(savedMode) ? savedMode : 'auto';
+  // Freeze device detection before an on-screen keyboard can change dimensions.
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const width = innerWidth;
+  let currentMode;
+  function selectClient() {
+    const mode = devboxClientMode.resolveMode(selector.value, coarse, width);
+    if (mode === currentMode) return;
+    currentMode = mode;
+    document.getElementById('client-status').textContent = mode === 'mobile' ? 'Driftty' : 'Standard terminal';
+    term.src = mode === 'mobile' ? `/mobile/${encodeURIComponent(NAME)}` :
+      `/s/${offset}/`;
+  }
+  selector.addEventListener('change', () => {
+    prefs.set('clientMode', selector.value);
+    const url = new URL(location.href);
+    url.searchParams.delete('display');
+    history.replaceState(null, '', url);
+    selectClient();
+  });
+  selectClient();
+  term.addEventListener('load', focusTerminal);
+  const {title, description, cwd, color} = s;
+  applyMeta({title, description, cwd, color});
+
+  const list = await (await fetch('/api/widgets')).json();
+  for (const f of list) await loadScript('/static/widgets/' + encodeURIComponent(f));
+  const order = (w) => (typeof w.order === 'number' ? w.order : 100);
+  widgets.sort((a, b) => order(a) - order(b));
+  widgets.forEach(mountWidget);
+  await loadScript('/static/browser-panel.js');
+  pollStatus();
+  setInterval(pollStatus, 2000);
+})();
+</script>
+</body>
+</html>

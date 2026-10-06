@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""Read/write this devbox session's notepad (shown in the dashboard's Notes
+session widget).
+
+The session defaults to $ZELLIJ_SESSION_NAME, which zellij sets in every pane.
+
+  devbox-notes cat              print the notes
+  devbox-notes append TEXT      append TEXT as a new line (or `append -` for stdin)
+  devbox-notes write            replace the whole notepad with stdin
+  devbox-notes path             print the notes file path
+  devbox-notes --session NAME … target another session
+"""
+import argparse
+import os
+import sys
+
+# In the repo devbox_store.py sits beside this file; installed, it lives
+# under /usr/local/lib/dev-workspace.
+for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-workspace"):
+    if os.path.isfile(os.path.join(d, "devbox_store.py")):
+        sys.path.insert(0, d)
+        break
+import devbox_store as store  # noqa: E402
+
+
+def main():
+    p = argparse.ArgumentParser(prog="devbox-notes", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--session", help="session name (default: $ZELLIJ_SESSION_NAME)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("cat")
+    sub.add_parser("path")
+    ap = sub.add_parser("append")
+    ap.add_argument("text", help="text to append, or - to read stdin")
+    wp = sub.add_parser("write")
+    wp.add_argument("source", nargs="?", default="-", help="- (stdin, the default)")
+    args = p.parse_args()
+
+    # A Claude background job's own env is from where it was launched; if
+    # it's attached from a pane (`claude attach <id>`), that's the session
+    # the user is looking at.
+    attached = store.attached_pane(os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    session = args.session or (attached[0] if attached else os.environ.get("ZELLIJ_SESSION_NAME"))
+    if not session:
+        p.error("no session: not inside zellij ($ZELLIJ_SESSION_NAME unset) and no --session given")
+    if not store.valid_name(session):
+        p.error("invalid session name: %r" % session)
+
+    if args.cmd == "cat":
+        sys.stdout.write(store.read_notes(session)[0])
+    elif args.cmd == "path":
+        print(store.notes_path(session))
+    elif args.cmd == "append":
+        text = sys.stdin.read() if args.text == "-" else args.text
+        store.append_notes(session, text)
+    elif args.cmd == "write":
+        if args.source != "-":
+            p.error("write only reads stdin (use `-` or nothing)")
+        store.write_notes(session, sys.stdin.read())
+
+
+if __name__ == "__main__":
+    main()

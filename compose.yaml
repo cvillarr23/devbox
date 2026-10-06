@@ -1,0 +1,27 @@
+services:
+  devbox:
+    build: .
+    image: ghcr.io/cvillarr23/devbox:0.1.0
+    ports:
+      - "127.0.0.1:${DEVBOX_HOST_PORT:-7680}:7680"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DEVBOX_OPEN_TARGET: ${DEVBOX_OPEN_TARGET:-remote}
+    volumes:
+      - devbox-home:/home/devbox
+      - devbox-state:/data
+      - ${DEVBOX_PROJECTS:-./workspace}:/workspace
+      - ./config/environments.yaml:/etc/devbox/environments.yaml:ro
+    shm_size: 1gb
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:7680/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+volumes:
+  devbox-home:
+  devbox-state:

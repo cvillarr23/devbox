@@ -1,0 +1,12 @@
+environments:
+  local:
+    type: local
+  # server:
+  #   type: ssh
+  #   host: development-server  # Alias in mounted ~/.ssh/config
+  # cluster-project:
+  #   type: kubernetes
+  #   context: development
+  #   namespace: development
+  #   selector: app=project-workspace
+  #   container: workspace

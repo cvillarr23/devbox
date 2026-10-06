@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dev Workspace Sessions</title>
+<style>
+:root{color-scheme:dark;--bg:#0f1115;--panel:#171c24;--border:#303947;--muted:#a3afbf;--fg:#e4eaf2}
+*{box-sizing:border-box}body{font:15px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg);max-width:1200px;margin:2rem auto;padding:0 1rem}
+h1{font-size:1.6rem;margin-bottom:.25rem}h2{font-size:1rem;overflow-wrap:anywhere;margin:1.5rem 0 .7rem}
+a{color:#92c5ff}button,input,select{font:inherit;min-height:44px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--fg);padding:.45rem .65rem}button{cursor:pointer}
+.toolbar{display:flex;flex-wrap:wrap;gap:.7rem;margin:1.2rem 0}.toolbar label{display:flex;flex-direction:column;gap:.3rem;font-size:.85rem;color:var(--muted)}
+.cards{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:1rem}
+.card{min-width:0;background:var(--panel);border:1px solid var(--border);border-left:4px solid #536174;border-radius:12px;padding:1rem;overflow-wrap:anywhere}
+.card header{display:flex;justify-content:space-between;gap:.7rem;align-items:start}.title{font-size:1.1rem;font-weight:650}.name,.desc,.muted{color:var(--muted)}.name{font-size:.8rem;margin-top:.2rem}.badge{font-size:.8rem;background:#253142;padding:.15rem .5rem;border-radius:12px;white-space:nowrap}.badge[data-status=waiting]{color:#ffd18a}.badge[data-status=working]{color:#99caff}
+dl{display:grid;grid-template-columns:6.2rem minmax(0,1fr);gap:.45rem .6rem;font-size:.85rem}dt{color:var(--muted)}dd{margin:0;white-space:pre-line}time{display:block}.relative{display:block;color:var(--muted);font-size:.78rem}
+.card footer{display:flex;align-items:center;flex-wrap:wrap;gap:.8rem;border-top:1px solid var(--border);padding-top:.7rem;margin-top:1rem;font-size:.85rem}.card footer a{padding:.5rem 0}.danger{margin-left:auto;color:#ffb4b4}
+form{display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap}input{flex:1;min-width:10rem}#error{color:#ffb4b4}details{margin-top:1.5rem}summary{cursor:pointer;padding:.5rem 0}
+@media(max-width:500px){body{margin:1rem auto}.toolbar label{flex:1;min-width:110px}}
+</style>
+</head>
+<body>
+<h1>Dev Workspace Sessions</h1>
+<p class="muted" id="count" aria-live="polite">Loading sessions…</p>
+<div class="toolbar" aria-label="Session organization">
+<label>Sort by<select id="sort"><option value="last_activity_at">Last activity</option><option value="started_at">Start time</option><option value="name">Name</option><option value="agent">AI agent</option><option value="folder">Working folder</option><option value="repo">Repository</option></select></label>
+<label>Order<select id="direction"><option value="desc">Descending</option><option value="asc">Ascending</option></select></label>
+<label>Group by<select id="group"><option value="none">None</option><option value="agent">AI agent</option><option value="folder">Working folder</option><option value="repo">Repository</option><option value="status">Status</option></select></label>
+</div>
+<div id="sessions"></div>
+<details><summary>Create a session</summary>
+<form id="new-form">
+<select id="new-environment" aria-label="Environment"></select>
+<input id="new-name" placeholder="new session name" required>
+<input id="new-cwd" placeholder="working directory (optional, e.g. /workspace/project)">
+<button type="submit">Create</button>
+</form></details>
+<p id="error" role="alert"></p>
+<script src="/static/session-cards.js"></script>
+<script>
+const C = __DEVBOX_CONFIG__;
+const viewUrl = name => `/view/${encodeURIComponent(name)}`;
+
+let sessions = [];
+const controls = Object.fromEntries(['sort','direction','group'].map(k=>[k,document.getElementById(k)]));
+for (const [key,control] of Object.entries(controls)) {
+  try { const saved=localStorage.getItem('devbox.cards.'+key); if ([...control.options].some(o=>o.value===saved)) control.value=saved; } catch {}
+  control.onchange=()=>{
+    if(key==='sort') controls.direction.value=['started_at','last_activity_at'].includes(control.value)?'desc':'asc';
+    try { for(const [k,c] of Object.entries(controls)) localStorage.setItem('devbox.cards.'+k,c.value); } catch {}
+    render();
+  };
+}
+function el(tag,text,cls) { const e=document.createElement(tag); if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e; }
+function link(href,text) {const a=el('a',text);a.href=href;a.target='_blank';a.rel='noopener';return a;}
+function addField(dl,label,value,help) {
+  const dt=el('dt',label),dd=el('dd',value);if(help){dt.title=help;dd.title=help;}dl.append(dt,dd);return dd;
+}
+function addTime(dl,label,stamp,help) {
+  const dd=addField(dl,label,'',help);
+  if(!stamp){dd.textContent='Unknown';return;}
+  const date=new Date(stamp*1000),t=el('time',date.toLocaleString());t.dateTime=date.toISOString();dd.append(t);
+  const minutes=Math.max(0,Math.floor((Date.now()-date.getTime())/60000));
+  dd.append(el('span',minutes<1?'Just now':minutes<60?minutes+' min ago':minutes<1440?Math.floor(minutes/60)+' hr ago':Math.floor(minutes/1440)+' days ago','relative'));
+}
+function card(s) {
+  const li=el('li',undefined,'card');li.dataset.session=s.name;if(s.color)li.style.borderLeftColor=s.color;
+  const header=el('header'),heading=el('div'),main=link(viewUrl(s.name),s.title||s.name);main.className='title';heading.append(main);
+  heading.append(el('div',s.name,'name'));header.append(heading);
+  const badge=el('span',s.status||'idle','badge');badge.dataset.status=s.status;header.append(badge);li.append(header);
+  if(s.description)li.append(el('p',s.description,'desc'));
+  const dl=el('dl');
+  addTime(dl,'Started',s.started_at,'Start of the current web terminal service; may differ from the original Zellij session start.');
+  addTime(dl,'Last activity',s.last_activity_at,'Latest reported agent event or notes edit. Dashboard views and status acknowledgements do not count. Shell keystrokes are not tracked.');
+  addField(dl,'AI agent',(s.agent_names||[]).join(', ')||'No active agent');
+  addField(dl,'Folder',(s.folders||[]).join('\n')||'Unknown','Active agent working directories; otherwise configured session startup directory.');
+  addField(dl,'Repository',(s.repositories||[]).map(r=>r.name+' — '+r.path).join('\n')||'Not detected');li.append(dl);
+  addField(dl,'Environment',s.environment+' · '+s.connection);
+  const footer=el('footer');footer.append(link(viewUrl(s.name),'Open session'),link(`/s/${s.port-C.portStart}/`,'Raw terminal'));
+  if(s.connection!=='connected') {const reconnect=el('button','Reconnect'); reconnect.onclick=async()=>{reconnect.disabled=true;try{const r=await fetch('/api/sessions/'+encodeURIComponent(s.name)+'/reconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!r.ok)throw new Error((await r.json()).error);await refresh();}catch(e){document.getElementById('error').textContent=e.message;}finally{reconnect.disabled=false;}};footer.append(reconnect);}
+  const del=el('button','Kill','danger');del.onclick=async()=>{
+    if(!confirm('Kill session "'+s.name+'"? This ends it for good.'))return;
+    try {const res=await fetch('/api/sessions/'+encodeURIComponent(s.name),{method:'DELETE'});if(!res.ok)throw new Error('Could not kill session');await refresh();}catch(e){document.getElementById('error').textContent=e.message;}
+  };footer.append(del);li.append(footer);return li;
+}
+function render() {
+  const fragment=document.createDocumentFragment();
+  for(const [group,items] of devboxCards.arrange(sessions,controls.sort.value,controls.direction.value,controls.group.value)) {
+    const section=el('section');if(group)section.append(el('h2',group+' ('+items.length+')'));
+    const ul=el('ul',undefined,'cards');for(const s of items)ul.append(card(s));section.append(ul);fragment.append(section);
+  }
+  document.getElementById('sessions').replaceChildren(fragment);
+  document.getElementById('count').textContent=sessions.length?sessions.length+' sessions':'No registered sessions';
+}
+let refreshing=false;
+async function refresh() {
+  if(refreshing)return;refreshing=true;
+  try {const res=await fetch('/api/sessions');const data=await res.json();if(!res.ok||!Array.isArray(data))throw new Error(data.error||'Unable to load sessions');sessions=data;render();document.getElementById('error').textContent='';}
+  catch(e){document.getElementById('error').textContent='Could not refresh sessions: '+e.message;}
+  finally {refreshing=false;}
+}
+
+document.getElementById('new-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('new-name');
+  const cwdInput = document.getElementById('new-cwd');
+  const name = nameInput.value.trim();
+  if (!name) return;
+  const body = {name, environment: document.getElementById('new-environment').value};
+  if (cwdInput.value.trim()) body.cwd = cwdInput.value.trim();
+  const res = await fetch('/api/sessions', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  const s = await res.json();
+  document.getElementById('error').textContent = res.ok ? '' : (s.error || 'create failed');
+  if (!res.ok) return;
+  nameInput.value = '';
+  cwdInput.value = '';
+  window.open(viewUrl(s.name), '_blank');
+  refresh();
+});
+fetch('/api/environments').then(r=>r.json()).then(items=>{for(const item of items){const option=el('option',item.name+' ('+item.type+')');option.value=item.name;document.getElementById('new-environment').append(option);}});
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

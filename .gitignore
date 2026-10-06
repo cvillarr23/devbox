@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.env
+data/
+home/
+workspace/
+*.log
+
+credentials/
+compose.override.yaml
+.env.*
+!.env.example

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+mkdir -p "$HOME" "$DEVBOX_STATE_DIR" "${DEVBOX_WORKSPACE:-/workspace}"
+python3 - <<'PY'
+import os
+from pathlib import Path
+for agent in ('claude','codex'):
+    for skill in ('devbox-notes','devbox-browser'):
+        target=Path.home()/f'.{agent}/skills'/skill
+        target.parent.mkdir(parents=True,exist_ok=True)
+        if not target.exists() and not target.is_symlink():
+            target.symlink_to(Path('/opt/devbox/app/skills')/skill)
+PY
+exec python3 /opt/devbox/app/server.py

@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Report Claude Code / Codex state for the devbox web UI (favicon, tab
+title, dashboard badge, notifications).
+
+  devbox-status hook --agent claude|codex   run from an agent hook; reads the
+                                            hook JSON on stdin
+  devbox-status show [--session NAME]       print the session's status JSON
+
+Installed by scripts/dev-workspace-setup.sh and wired into
+/etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
+`hook` never writes to stdout (Codex treats Stop/PostToolUse stdout as JSON
+and Claude injects some hooks' stdout into context) and always exits 0, so a
+bug here can never break an agent. Set DEVBOX_STATUS_DEBUG=1 to see errors.
+"""
+import argparse
+import json
+import os
+import sys
+import traceback
+
+for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-workspace"):
+    if os.path.isfile(os.path.join(d, "devbox_store.py")):
+        sys.path.insert(0, d)
+        break
+import devbox_store as store  # noqa: E402
+import agent_process  # noqa: E402
+
+SHELLS = {"sh", "bash", "dash", "zsh", "fish"}
+
+
+def _stat(pid):
+    """(comm, ppid) from /proc/<pid>/stat; comm may itself contain spaces."""
+    with open("/proc/%d/stat" % pid) as f:
+        raw = f.read()
+    comm = raw[raw.index("(") + 1:raw.rindex(")")]
+    ppid = int(raw[raw.rindex(")") + 2:].split()[1])
+    return comm, ppid
+
+
+def agent_pid():
+    """The agent process: our first ancestor that isn't a shell wrapper
+    (Claude Code runs hooks via `sh -c`; Codex runs them directly)."""
+    pid = os.getppid()
+    for _ in range(8):
+        comm, ppid = _stat(pid)
+        if comm not in SHELLS or ppid <= 1:
+            return pid
+        pid = ppid
+    return pid
+
+
+def cmd_hook(agent):
+    payload = json.loads(sys.stdin.read() or "{}")
+    if not isinstance(payload, dict):
+        return
+    # A background job reports to the pane it's attached from (`claude
+    # attach <id>`), not the one it happened to be launched in.
+    target = store.attached_pane(payload.get("session_id")) if agent == "claude" else None
+    session, pane = target or (os.environ.get("ZELLIJ_SESSION_NAME"), os.environ.get("ZELLIJ_PANE_ID"))
+    process = agent_process.locate(agent, payload, session, pane)
+    if process:
+        session, pane = process["session"], process["pane"]
+    if not session or not pane or not store.valid_name(session):
+        return
+    store.record_agent_event(session, pane, agent, payload, process["pid"] if process else agent_pid())
+
+
+def main():
+    p = argparse.ArgumentParser(prog="devbox-status", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    hp = sub.add_parser("hook")
+    hp.add_argument("--agent", required=True, choices=store.AGENTS)
+    sp = sub.add_parser("show")
+    sp.add_argument("--session", help="session name (default: $ZELLIJ_SESSION_NAME)")
+    args = p.parse_args()
+
+    if args.cmd == "show":
+        session = args.session or os.environ.get("ZELLIJ_SESSION_NAME")
+        if not session:
+            p.error("no session: $ZELLIJ_SESSION_NAME unset and no --session given")
+        print(json.dumps(store.session_status(session), indent=2))
+        return
+    try:
+        cmd_hook(args.agent)
+    except Exception:
+        if os.environ.get("DEVBOX_STATUS_DEBUG"):
+            traceback.print_exc()
+
+
+if __name__ == "__main__":
+    main()
