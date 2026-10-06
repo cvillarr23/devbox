@@ -90,6 +90,10 @@ async def test_gateway_auth_csrf_and_session_notes(state):
         r = await client.post('/api/sessions/one/open', headers=auth, json={'url': 'https://example.com', 'target': 'local'})
         assert (await r.json())['status'] == 'pending'
         assert (await client.post('/api/sessions/one/open', headers=auth, json={'url': 'javascript:alert(1)', 'target': 'remote'})).status == 400
+        assert (await client.delete('/api/browser', headers=auth)).status == 200
+        rt.kill = AsyncMock()
+        assert (await client.delete('/api/sessions/one', headers=auth)).status == 204
+        rt.kill.assert_awaited_once_with('one')
 
 
 @pytest.mark.asyncio

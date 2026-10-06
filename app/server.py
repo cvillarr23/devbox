@@ -37,7 +37,9 @@ async def boundary(request, handler):
         origin = request.headers.get('Origin')
         if origin and urlsplit(origin).netloc != request.host:
             raise web.HTTPForbidden(text='Cross-origin requests are not allowed')
-        if request.method not in ('GET', 'HEAD') and request.content_type != 'application/json':
+        if (request.method not in ('GET', 'HEAD') and
+                (request.method != 'DELETE' or request.can_read_body) and
+                request.content_type != 'application/json'):
             raise web.HTTPUnsupportedMediaType(text='Use application/json')
     try:
         response = await handler(request)
