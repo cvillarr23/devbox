@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Print the current devbox session, or fail if it cannot be uniquely detected."""
+
+import argparse
+import json
+import os
+import sys
+
+for directory in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-workspace"):
+    if os.path.isfile(os.path.join(directory, "current_session.py")):
+        sys.path.insert(0, directory)
+        break
+from current_session import detect, SessionDetectionError
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--session", help="override automatic detection")
+    parser.add_argument("--json", action="store_true", help="include pane and detection source")
+    args = parser.parse_args()
+    try:
+        result = detect(args.session)
+    except SessionDetectionError as exc:
+        parser.error(str(exc))
+    print(json.dumps(result) if args.json else result["session"])
+
+
+if __name__ == "__main__":
+    main()

@@ -24,6 +24,7 @@ for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-works
         break
 import devbox_store as store  # noqa: E402
 import agent_process  # noqa: E402
+from current_session import detect, SessionDetectionError  # noqa: E402
 
 SHELLS = {"sh", "bash", "dash", "zsh", "fish"}
 
@@ -72,13 +73,14 @@ def main():
     hp = sub.add_parser("hook")
     hp.add_argument("--agent", required=True, choices=store.AGENTS)
     sp = sub.add_parser("show")
-    sp.add_argument("--session", help="session name (default: $ZELLIJ_SESSION_NAME)")
+    sp.add_argument("--session", help="session name (default: automatic detection)")
     args = p.parse_args()
 
     if args.cmd == "show":
-        session = args.session or os.environ.get("ZELLIJ_SESSION_NAME")
-        if not session:
-            p.error("no session: $ZELLIJ_SESSION_NAME unset and no --session given")
+        try:
+            session = detect(args.session)["session"]
+        except SessionDetectionError as exc:
+            p.error(str(exc))
         print(json.dumps(store.session_status(session), indent=2))
         return
     try:
