@@ -2,7 +2,8 @@
 """Read/write this devbox session's notepad (shown in the dashboard's Notes
 session widget).
 
-The session defaults to $ZELLIJ_SESSION_NAME, which zellij sets in every pane.
+The session is detected from the attached pane, Zellij environment or exact agent
+registration. Detection fails if no unique live session can be identified.
 
   devbox-notes cat              print the notes
   devbox-notes append TEXT      append TEXT as a new line (or `append -` for stdin)
@@ -21,12 +22,13 @@ for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-works
         sys.path.insert(0, d)
         break
 import devbox_store as store  # noqa: E402
+from current_session import detect, SessionDetectionError  # noqa: E402
 
 
 def main():
     p = argparse.ArgumentParser(prog="devbox-notes", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--session", help="session name (default: $ZELLIJ_SESSION_NAME)")
+    p.add_argument("--session", help="session name (default: automatic detection)")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("cat")
     sub.add_parser("path")
@@ -36,15 +38,10 @@ def main():
     wp.add_argument("source", nargs="?", default="-", help="- (stdin, the default)")
     args = p.parse_args()
 
-    # A Claude background job's own env is from where it was launched; if
-    # it's attached from a pane (`claude attach <id>`), that's the session
-    # the user is looking at.
-    attached = store.attached_pane(os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    session = args.session or (attached[0] if attached else os.environ.get("ZELLIJ_SESSION_NAME"))
-    if not session:
-        p.error("no session: not inside zellij ($ZELLIJ_SESSION_NAME unset) and no --session given")
-    if not store.valid_name(session):
-        p.error("invalid session name: %r" % session)
+    try:
+        session = detect(args.session)["session"]
+    except SessionDetectionError as exc:
+        p.error(str(exc))
 
     if args.cmd == "cat":
         sys.stdout.write(store.read_notes(session)[0])

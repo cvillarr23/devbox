@@ -47,6 +47,12 @@ The container image installs managed agent hooks without changing mounted user c
 
 Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Existing skill directories are kept. Remote targets require Python 3.10 or newer.
 
+## Current-session detection
+
+`devbox-session` prints the current session name; `devbox-session --json` adds the pane and detection source. `devbox-notes`, `devbox-open`, `devbox forward` and `devbox-status show` use the same resolver, and an explicit `--session NAME` overrides it.
+
+Detection tries these in order: the pane a Claude background job is attached from, `DEVBOX_SESSION` (set by the remote relay), `ZELLIJ_SESSION_NAME`, and an exact Codex/Claude thread ID in the session agent registry with a matching live PID and process start time. Missing or ambiguous identity exits nonzero with an actionable error. Working directories and the existence of a single session are never used as guesses. Status hooks keep their silent no-op behavior outside a session.
+
 ## Network behavior
 
 Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.

@@ -44,10 +44,12 @@ def invoke(session, operation, args):
     return request(f'/api/sessions/{session}/' + ('notes-command' if operation == 'notes' else operation), args)
 
 
-def current_session():
-    import devbox_store
-    attached = devbox_store.attached_pane(os.environ.get('CLAUDE_CODE_SESSION_ID'))
-    return attached[0] if attached else os.environ.get('DEVBOX_SESSION', os.environ.get('ZELLIJ_SESSION_NAME'))
+def current_session(explicit=None):
+    from current_session import detect, SessionDetectionError
+    try:
+        return detect(explicit)
+    except SessionDetectionError as exc:
+        raise ValueError(str(exc)) from None
 
 
 def main():
@@ -55,15 +57,24 @@ def main():
     parser = argparse.ArgumentParser(prog=command)
     if command == 'devbox-open':
         parser.add_argument('--target', choices=('local', 'remote'), default=os.environ.get('DEVBOX_OPEN_TARGET', 'remote'))
-        parser.add_argument('--session', default=current_session())
+        parser.add_argument('--session')
         parser.add_argument('url')
         args = parser.parse_args(sys.argv[2:])
+        args.session = current_session(args.session)['session']
         result = invoke(args.session, 'open', {'url': args.url, 'target': args.target})
+    elif command == 'devbox-session':
+        parser.add_argument('--session', help='override automatic detection')
+        parser.add_argument('--json', action='store_true', help='include pane and detection source')
+        args = parser.parse_args(sys.argv[2:])
+        result = current_session(args.session)
+        print(json.dumps(result) if args.json else result['session'])
+        return
     elif command == 'devbox-notes':
-        parser.add_argument('--session', default=current_session())
+        parser.add_argument('--session')
         parser.add_argument('action', choices=('cat', 'append', 'write', 'path'))
         parser.add_argument('text', nargs='?')
         args = parser.parse_args(sys.argv[2:])
+        args.session = current_session(args.session)['session']
         if args.action == 'path':
             if os.environ.get('DEVBOX_REMOTE') == '1':
                 raise ValueError('Notes live in devbox; use devbox-notes cat')
@@ -83,12 +94,12 @@ def main():
         env.add_parser('bootstrap').add_argument('name')
         forward = sub.add_parser('forward')
         forward.add_argument('port', type=int)
-        forward.add_argument('--session', default=current_session())
+        forward.add_argument('--session')
         args = parser.parse_args(sys.argv[2:])
         if args.command == 'doctor':
-            result = invoke(current_session(), 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
+            result = invoke(current_session()['session'], 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
         elif args.command == 'forward':
-            result = invoke(args.session, 'forward', {'port': args.port})
+            result = invoke(current_session(args.session)['session'], 'forward', {'port': args.port})
         elif args.action == 'list':
             result = request('/api/environments')
         else:

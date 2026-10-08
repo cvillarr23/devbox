@@ -13,7 +13,7 @@ with tarfile.open(fileobj=io.BytesIO(data),mode="r:gz") as t:
  t.extractall(root)
 (root/"bin").mkdir(exist_ok=True)
 import shlex
-for name in ("devbox","devbox-open","devbox-notes"):
+for name in ("devbox","devbox-open","devbox-notes","devbox-session"):
  p=root/"bin"/name
  p.write_text("#!/bin/sh\nexport DEVBOX_REMOTE=1\nexec python3 "+shlex.quote(str(root/"cli.py"))+" "+name+" \"$@\"\n")
  p.chmod(0o755)
