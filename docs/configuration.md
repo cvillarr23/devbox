@@ -11,7 +11,7 @@
 | `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location |
 | `DEVBOX_SECURE_COOKIE` | unset | Set `1` when HTTPS terminates at a reverse proxy |
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
-| `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image |
+| `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
 | `DEVBOX_CODEX_SOCKET` | autodetected | Optional existing local Codex daemon Unix socket |
 

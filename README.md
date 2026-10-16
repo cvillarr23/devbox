@@ -141,6 +141,8 @@ A local link request is queued for the session viewer and claimed once. Browser 
 
 Chrome's internal sandbox is disabled by default because Docker's default seccomp policy blocks Chrome's namespace setup. It runs as the same unprivileged user inside this trusted single-user container. Set `DEVBOX_CHROME_SANDBOX=1` on a deployment whose namespace policy supports Chrome's sandbox.
 
+On a Mac, agents can also drive the host's own Chrome: Claude Code through Claude in Chrome, and other agents over CDP to a dedicated profile. See [host Chrome](docs/host-chrome.md).
+
 ## Agent status and notes
 
 The dashboard recognizes Claude Code and Codex processes independently of hook activity. Missing hooks show **status unavailable** rather than hiding the agent. Hooks report working, waiting, completion, interruption, and exit. Completion badges clear when acknowledged.
