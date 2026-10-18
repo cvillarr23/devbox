@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 import sys
@@ -11,17 +12,43 @@ import session_details as details
 
 
 class DetailsTest(unittest.TestCase):
+    def git(self, *args):
+        return subprocess.run(['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', *map(str, args)],
+                              check=True, capture_output=True, text=True)
+
     def test_worktrees_share_repository(self):
         with tempfile.TemporaryDirectory() as tmp:
+            # Reproduce an unrelated empty ancestor marker without relying on
+            # the test runner's /tmp being dirty.
+            Path(tmp, '.git').mkdir()
             repo = Path(tmp, 'repo')
-            gitdir = repo / '.git/worktrees/branch'
-            gitdir.mkdir(parents=True)
-            (gitdir / 'commondir').write_text('../..')
+            self.git('init', repo)
+            self.git('-C', repo, 'commit', '--allow-empty', '-m', 'Initial')
             worktree = Path(tmp, 'branch')
-            worktree.mkdir()
-            (worktree / '.git').write_text('gitdir: ' + str(gitdir))
+            self.git('-C', repo, 'worktree', 'add', '-b', 'branch', worktree)
             self.assertEqual(details.repository(str(worktree)), details.repository(str(repo)))
+            self.assertEqual(details.repository(str(repo)), {'name': 'repo', 'path': str(repo)})
             self.assertIsNone(details.repository(tmp))
+
+    def test_unborn_repository_and_nested_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp, 'repo')
+            self.git('init', repo)
+            folder = repo / 'nested'
+            (folder / '.git').mkdir(parents=True)
+            self.assertEqual(details.repository(folder), {'name': 'repo', 'path': str(repo)})
+
+    def test_relative_gitdir_and_broken_markers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.git('init', '--separate-git-dir', root / 'metadata', root / 'repo')
+            marker = root / 'repo/.git'
+            marker.write_text('gitdir: ../metadata\n')
+            self.assertEqual(details.repository(root / 'repo'), {'name': 'repo', 'path': str(root / 'repo')})
+            for value in ('gitdir: ../missing', 'not a gitdir', 'gitdir: ../empty'):
+                (root / 'empty').mkdir(exist_ok=True)
+                marker.write_text(value)
+                self.assertIsNone(details.repository(root / 'repo'))
 
     def test_activity_survives_end_and_ack_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, DEVBOX_STATE_DIR=tmp):

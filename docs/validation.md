@@ -1,6 +1,6 @@
 # Validation
 
-The unit suite covers session notes/conflicts, Claude attachment mapping, PID identity/reuse, Codex hook events and daemon state transitions, ambiguous target selection, URL validation, link claim/acknowledgment, authenticated gateway access, cross-origin rejection, startup restoration, and remote helper packaging.
+The unit suite covers session notes/conflicts, Claude attachment mapping, PID identity/reuse, Codex hook events and daemon state transitions, ambiguous target selection, URL validation, link claim/acknowledgment, authenticated gateway access, cross-origin rejection, startup restoration, and remote helper packaging. Session card coverage includes real Git repositories and linked worktrees, empty ancestor `.git` directories, read-only session listing, and activity timestamps. Node tests cover card sorting/grouping and automatic/explicit terminal display selection; gateway tests cover the registered Driftty backend and Desktop recovery when the bundle is missing.
 
 ```sh
 python -m pytest app/tests tests -q
@@ -17,7 +17,7 @@ python tests/container_smoke.py
 docker rm -f devbox-ci
 ```
 
-The smoke test uses an isolated session, executes the notes CLI over a real terminal WebSocket, verifies actual Codex sandbox execution, claims/acknowledges a local link, starts Chrome, fetches noVNC, completes a VNC handshake, opens a remote URL, and cleans up its session. The token is read internally and is never printed. CI runs this test before pushing images.
+The smoke test uses an isolated session, checks card metadata and both terminal display assets, verifies Driftty selects the registered same-origin backend, executes the notes CLI over a real terminal WebSocket, verifies actual Codex sandbox execution, claims/acknowledges a local link, starts Chrome, fetches noVNC, completes a VNC handshake, opens a remote URL, and cleans up its session. The token is read internally and is never printed. CI runs this test before pushing images. The same checks run against Docker and Kubernetes.
 
 For a Kubernetes trial with an active port-forward:
 
