@@ -72,5 +72,8 @@ global kernel settings, add outer capabilities, or bypass agent approval policie
 `DEVBOX_APPARMOR_PROFILE` chooses the Compose AppArmor profile. On hosts without
 AppArmor, use `unconfined`; the custom seccomp filter and Codex's own sandbox
 remain enabled. Kubernetes nodes must have the OCI profile installed before
-scheduling this workload. `devbox doctor` reports whether actual sandbox
-execution succeeds, as well as tool versions and hook permissions.
+scheduling this workload. Docker Desktop on macOS has no AppArmor: use
+`unconfined` there, with the custom seccomp profile, which covers both amd64
+and arm64. `devbox doctor` reports the CPU architecture, the AppArmor label
+and seccomp mode the container actually runs with, whether actual sandbox
+execution succeeds, tool versions and hook permissions.

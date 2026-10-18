@@ -45,7 +45,23 @@ Open <http://localhost:7680> and enter the access token. Create a session, choos
 
 Home, agent login configuration, Chrome's profile, and session state persist in Docker volumes. Projects use the directory configured by `DEVBOX_PROJECTS`. Mount writable directories owned by UID/GID 1000. No credentials are built into the image; log in to the agent CLIs from a terminal or supply your configuration at runtime.
 
-The image supports Linux amd64. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, and Chrome versions. Extend the Dockerfile for project-specific dependencies.
+Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, and Chrome versions. Extend the Dockerfile for project-specific dependencies.
+
+## macOS (Apple Silicon, Docker Desktop)
+
+Devbox runs natively on `linux/arm64`, so Docker Desktop doesn't emulate it. Docker Desktop's Linux VM has no AppArmor, so select the unconfined AppArmor profile; the custom seccomp filter and Codex's own sandbox stay enabled. Point `DEVBOX_PROJECTS` at a directory Docker Desktop shares (`/Users` is shared by default):
+
+```sh
+cp .env.example .env
+sed -i '' 's/^DEVBOX_APPARMOR_PROFILE=.*/DEVBOX_APPARMOR_PROFILE=unconfined/' .env
+sed -i '' "s|^DEVBOX_PROJECTS=.*|DEVBOX_PROJECTS=$HOME/dev|" .env
+docker compose up -d --build
+docker compose exec devbox devbox doctor
+```
+
+`devbox doctor` should report `platform.machine: aarch64`, `confinement.seccomp: 2`, `confinement.apparmor: unconfined` and `sandbox.supported: true`. Docker Desktop's file sharing maps ownership of bind-mounted files, so the container's UID 1000 can write files you own in the projects directory.
+
+The in-container Chrome (Google Chrome for Linux arm64) works through the **Browser** panel as on Linux. It is a separate profile from your Mac's Chrome.
 
 ## Kubernetes quickstart
 

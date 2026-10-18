@@ -47,6 +47,13 @@ async def check(args):
                 if response.status >= 400:
                     raise RuntimeError(f'{method} {path}: {result.get("error", response.status)}')
                 return result
+        doctor = await api('GET', '/api/doctor')
+        assert doctor['sandbox']['supported'], doctor['sandbox']
+        assert doctor['confinement']['seccomp'] == 2, doctor['confinement']
+        for tool in ('codex', 'claude', 'zellij', 'ttyd', 'google-chrome', 'kubectl'):
+            assert doctor['tools'][tool].get('ok'), (tool, doctor['tools'][tool])
+        print(f'Doctor on {doctor["platform"]["machine"]} '
+              f'(AppArmor {doctor["confinement"]["apparmor"]}): passed')
         try:
             entry = await api('POST', '/api/sessions', {'name': name})
             created = True
