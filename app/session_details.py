@@ -2,38 +2,14 @@
 import json
 import os
 from pathlib import Path
-import subprocess
-import time
 
 import devbox_store as store
 
-_cache = (0, (), {})
-
-
-def terminal_starts(names):
-    global _cache
-    names = tuple(sorted(n for n in names if store.valid_name(n)))
-    if _cache[1] == names and time.monotonic() - _cache[0] < 15:
-        return _cache[2]
-    result = {}
-    if names:
-        try:
-            out = subprocess.run(['systemctl', 'show', *('ttyd-session-' + n + '.service' for n in names),
-                                  '--property=Id,ActiveEnterTimestampMonotonic,WorkingDirectory'],
-                                 capture_output=True, text=True, timeout=3)
-            boot = time.time() - time.monotonic()
-            for block in out.stdout.strip().split('\n\n'):
-                props = dict(line.split('=', 1) for line in block.splitlines() if '=' in line)
-                unit = props.get('Id', '')
-                name = unit.removeprefix('ttyd-session-').removesuffix('.service')
-                stamp = int(props.get('ActiveEnterTimestampMonotonic', '0'))
-                if name in names:
-                    result[name] = {'started_at': boot + stamp / 1e6 if stamp else None,
-                                    'cwd': props.get('WorkingDirectory', '')}
-        except (OSError, ValueError, subprocess.TimeoutExpired):
-            pass
-    _cache = (time.monotonic(), names, result)
-    return result
+def valid_gitdir(gitdir, common_dir):
+    # A leftover .git directory is not enough. Linked worktrees keep HEAD
+    # locally and share the object database and refs with the main repository.
+    return ((gitdir / 'HEAD').is_file() and
+            (common_dir / 'objects').is_dir() and (common_dir / 'refs').is_dir())
 
 
 def repository(folder):
@@ -42,7 +18,7 @@ def repository(folder):
         folder = Path(folder).resolve()
         for parent in (folder, *folder.parents):
             dotgit = parent / '.git'
-            if dotgit.is_dir():
+            if dotgit.is_dir() and valid_gitdir(dotgit, dotgit):
                 return {'name': parent.name, 'path': str(parent)}
             if dotgit.is_file():
                 marker = dotgit.read_text().strip()
@@ -54,8 +30,10 @@ def repository(folder):
                     common_dir = (gitdir / common.read_text().strip()).resolve()
                     root = common_dir.parent if common_dir.name == '.git' else parent
                 else:
+                    common_dir = gitdir
                     root = parent
-                return {'name': root.name, 'path': str(root)}
+                if valid_gitdir(gitdir, common_dir):
+                    return {'name': root.name, 'path': str(root)}
     except (OSError, ValueError):
         pass
     return None

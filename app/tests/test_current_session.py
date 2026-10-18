@@ -89,7 +89,7 @@ class CurrentSessionTest(unittest.TestCase):
     def test_cli_and_notes_share_detection(self):
         self.entry("core-131")
         os.environ["CODEX_SESSION_ID"] = "thread-1"
-        result = subprocess.run([sys.executable, str(ROOT / "devbox-session"), "--json"], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, str(ROOT / "cli.py"), "devbox-session", "--json"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["session"], "core-131")
         append = subprocess.run([sys.executable, str(ROOT / "devbox-notes"), "append", "detected"], capture_output=True, text=True)
