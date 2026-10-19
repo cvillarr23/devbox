@@ -57,6 +57,25 @@ async def check(args):
         try:
             entry = await api('POST', '/api/sessions', {'name': name})
             created = True
+            listed = next(s for s in await api('GET', '/api/sessions') if s['name'] == name)
+            assert listed['started_at'] is not None
+            assert listed['folders'] == [entry['cwd']]
+            assert isinstance(listed['repositories'], list)
+            assert isinstance(listed['agent_names'], list)
+            for path, marker in [('/', 'session-cards.js'),
+                                 (f'/view/{name}', 'client-mode.js'),
+                                 ('/static/session-cards.js', 'devboxCards'),
+                                 ('/static/client-mode.js', 'devboxClientMode'),
+                                 (f'/mobile/{name}?backend=https://example.com',
+                                  f'<meta name="devbox-terminal-base" content="/s/{entry["port"] - 7690}">')]:
+                async with client.get(base + path) as response:
+                    assert response.status == 200, path
+                    body = await response.text()
+                    assert marker in body, path
+                    if path.startswith('/mobile/'):
+                        assert response.headers['Cache-Control'] == 'no-store'
+                        assert 'https://example.com' not in body
+            print('Session card details, client modes, and Driftty backend: passed')
             async with client.ws_connect(base + f'/s/{entry["port"] - 7690}/ws', protocols=['tty']) as ws:
                 await ws.send_str(json.dumps({'AuthToken': '', 'columns': 100, 'rows': 30}))
                 await asyncio.sleep(1)

@@ -83,8 +83,14 @@ async def view(request):
         raise web.HTTPNotFound()
     if request.path.startswith('/mobile/'):
         entry = request.app['runtime'].sessions[request.match_info['name']]
-        text = (WEB / 'vendor/driftty/index.html').read_text()
-        return web.Response(text=text.replace('<head>', f'<head><meta name="devbox-terminal-base" content="/s/{entry["port"]-7690}">', 1), content_type='text/html')
+        try:
+            text = (WEB / 'vendor/driftty/index.html').read_text()
+        except FileNotFoundError:
+            return web.Response(status=503, text='Mobile client is not installed. Select Desktop in the view toolbar.',
+                                headers={'Cache-Control': 'no-store'})
+        # Use only the registered backend, never a client-supplied URL.
+        return web.Response(text=text.replace('<head>', f'<head><meta name="devbox-terminal-base" content="/s/{entry["port"]-7690}">', 1),
+                            content_type='text/html', headers={'Cache-Control': 'no-store'})
     return page('view.html')
 
 
