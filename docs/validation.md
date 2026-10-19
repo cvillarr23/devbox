@@ -17,7 +17,7 @@ python tests/container_smoke.py
 docker rm -f devbox-ci
 ```
 
-The smoke test uses an isolated session, checks card metadata and both terminal display assets, verifies Driftty selects the registered same-origin backend, executes the notes CLI over a real terminal WebSocket, verifies actual Codex sandbox execution, claims/acknowledges a local link, starts Chrome, fetches noVNC, completes a VNC handshake, opens a remote URL, and cleans up its session. The token is read internally and is never printed. CI runs this test before pushing images. The same checks run against Docker and Kubernetes.
+The smoke test uses an isolated session, checks card metadata and both terminal display assets, verifies Driftty selects the registered same-origin backend, executes the notes CLI over a real terminal WebSocket, verifies actual Codex sandbox execution, claims/acknowledges a local link, starts Chrome, fetches noVNC, completes a VNC handshake, opens a remote URL, and cleans up its session. It also checks `devbox doctor` for a working sandbox, the seccomp filter and the bundled tools. The token is read internally and is never printed. CI builds and runs this test on native `linux/amd64` and `linux/arm64` runners, pushes each tested build by digest, and only then publishes the multi-arch tags. The same checks run against Docker and Kubernetes.
 
 For a Kubernetes trial with an active port-forward:
 
