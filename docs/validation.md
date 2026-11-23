@@ -30,3 +30,11 @@ Remote acceptance checks use a disposable SSH host and a prepared Kubernetes con
 Browser acceptance checks cover desktop terminal rendering, coarse-pointer mobile selection, the Chrome panel, and a clickable pending link after popup blocking. Real mobile keyboard/dictation behavior and user account OAuth flows still require the relevant device/account.
 
 Chrome profile persistence is also checked through a forced replacement of a disposable container with a dedicated home volume. Native Codex hook execution is checked with a localhost-only mock provider and no account/model calls.
+
+Replacement, upgrade and rollback use `tests/replacement_check.py`. `seed` creates a session with notes, a Git project with an uncommitted change, a Chrome-profile file and a running command; replace the container or pod, then `verify` checks all of it persisted, that the session waits for an explicit reconnect, and that pressing Enter in the reconnected terminal doesn't rerun the old command. Backup and restore go through `scripts/devbox-backup.sh` (see [operations.md](operations.md)): seed, back up, recreate the volumes empty, restore, verify.
+
+```sh
+python tests/replacement_check.py seed --container devbox-ci
+docker rm -f devbox-ci && docker run -d --name devbox-ci ... # same volumes, next image
+python tests/replacement_check.py verify --container devbox-ci --cleanup
+```
