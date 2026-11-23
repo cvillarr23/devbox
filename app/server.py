@@ -235,9 +235,13 @@ async def session(request):
         else:
             result = rt.browser.ack(name, data['id'], data['viewer'], data['status'])
         return web.json_response(result)
-    if action in ('open', 'forward', 'notes-command', 'doctor') and method == 'POST':
+    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn') and method == 'POST':
         return web.json_response(await rt.operation(name, 'notes' if action == 'notes-command' else action, data))
     raise web.HTTPNotFound()
+
+
+async def spawn_top_level(request):
+    return web.json_response(await request.app['runtime'].spawn(None, await request.json()))
 
 
 async def browser(request):
@@ -311,6 +315,7 @@ def create_app(runtime=None):
     app.router.add_route('*', '/s/{slot:\\d+}/{path:.*}', proxy)
     app.router.add_route('*', '/browser/{path:.*}', proxy)
     app.router.add_get('/api/widgets', lambda _: web.json_response(sorted(p.name for p in (WEB / 'widgets').glob('*.js'))))
+    app.router.add_post('/api/spawn', spawn_top_level)
     app.router.add_route('*', '/api/sessions', sessions)
     app.router.add_route('*', '/api/sessions/{name}', session)
     app.router.add_route('*', '/api/sessions/{name}/{action:.*}', session)

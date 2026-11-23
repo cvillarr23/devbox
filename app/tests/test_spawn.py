@@ -1,0 +1,167 @@
+"""devbox spawn: argument checks, worktrees, limits, parent link."""
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import pytest_asyncio
+from aiohttp.test_utils import TestClient, TestServer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import devbox_store as store
+import runtime
+import server
+import spawn
+
+
+def test_plan_defaults_and_validation():
+    assert spawn.plan({})['agent'] == 'claude'
+    bad = [{'agent': 'vim'}, {'model': 'gpt'}, {'agent': 'codex', 'permission_mode': 'plan'},
+           {'permission_mode': 'yolo'}, {'name': 'a b'}, {'cwd': '/x', 'worktree': 'b'},
+           {'worktree': '../x'}, {'worktree': '-rf'}, {'prompt': 'a\0b'}]
+    for args in bad:
+        with pytest.raises(ValueError):
+            spawn.plan(args)
+    assert spawn.plan({'agent': 'codex', 'model': 'gpt-5.1'})['model'] == 'gpt-5.1'
+
+
+def test_child_prompt_names_parent_and_protocol():
+    text = spawn.child_prompt('do it', 'boss:3')
+    assert text.startswith('do it\n\n')
+    assert '`boss`' in text and '--to parent --kind question' in text and '--kind done' in text
+    assert spawn.child_prompt('do it', '') == 'do it'
+
+
+def test_child_name_skips_taken():
+    assert spawn.child_name('boss', {'boss-1', 'boss-2'}) == 'boss-3'
+    assert spawn.child_name(None, set()) == 'spawn-1'
+
+
+def test_agent_script_inlines_only_validated_tokens():
+    script = spawn.agent_script('claude', 'sonnet', 'plan', "/s/it's/prompt.md")
+    assert script.startswith('claude --model sonnet --permission-mode plan -- "$(cat ')
+    assert "'/s/it'\\''s/prompt.md'" in script
+
+
+def test_layout_escapes_kdl_strings():
+    text = spawn.layout('/w"x', 'echo "$(a)" \\')
+    assert 'cwd="/w\\"x"' in text and 'args "-c" "echo \\"$(a)\\" \\\\"' in text
+
+
+def git(cwd, *argv):
+    subprocess.run(['git', '-C', str(cwd), *argv], check=True, capture_output=True)
+
+
+@pytest.fixture
+def repo(tmp_path):
+    path = tmp_path / 'proj'
+    path.mkdir()
+    git(path, 'init', '-q', '-b', 'main')
+    git(path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init')
+    return path
+
+
+def test_create_worktree_new_and_existing_branch(repo):
+    path = spawn.create_worktree(str(repo / '.'), 'feat/x')
+    assert path == str(repo.parent / 'proj-feat-x') and Path(path, '.git').exists()
+    git(repo, 'branch', 'older')
+    assert Path(spawn.create_worktree(str(repo), 'older')).is_dir()
+    with pytest.raises(ValueError):
+        spawn.create_worktree(str(repo), 'feat/x')
+    with pytest.raises(ValueError):
+        spawn.create_worktree(str(repo.parent), 'nope')
+
+
+@pytest_asyncio.fixture
+async def gateway(tmp_path, monkeypatch, repo):
+    monkeypatch.setenv('DEVBOX_STATE_DIR', str(tmp_path / 'state'))
+    monkeypatch.setenv('DEVBOX_ENVIRONMENTS', str(tmp_path / 'environments.yaml'))
+    monkeypatch.setenv('DEVBOX_WORKSPACE', str(repo))
+    started = []
+    monkeypatch.setattr(spawn, 'start_agent', lambda name, cwd, spec, prompt: started.append((name, cwd, spec, prompt)))
+    rt = runtime.Runtime()
+
+    async def fake_ensure(name, target='local', cwd=''):
+        rt.sessions[name] = {'name': name, 'port': 7700 + len(rt.sessions), 'connection': 'connected',
+                             'environment': target, 'target': {'type': 'local'}, 'cwd': cwd or str(repo),
+                             'started_at': 1}
+        return rt.sessions[name]
+    rt.ensure = fake_ensure
+    await fake_ensure('boss')
+    app = server.create_app(rt)
+    async with TestClient(TestServer(app), headers={'Authorization': 'Bearer ' + app['token']}) as client:
+        yield client, rt, started, repo
+
+
+@pytest.mark.asyncio
+async def test_spawn_records_parent_and_starts_agent(gateway):
+    client, rt, started, repo = gateway
+    response = await client.post('/api/sessions/boss/spawn', json={
+        'prompt': 'go', 'model': 'sonnet', 'worktree': 'feat/a', 'origin_cwd': str(repo), 'pane': '4'})
+    body = await response.json()
+    assert response.status == 200, body
+    assert body['name'] == 'boss-1' and body['parent'] == 'boss:4'
+    assert body['url'].endswith('/view/boss-1') and body['cwd'] == str(repo.parent / 'proj-feat-a')
+    assert store.read_meta('boss-1')['parent'] == 'boss:4'
+    (name, cwd, spec, prompt), = started
+    assert cwd == body['cwd'] and spec['model'] == 'sonnet' and prompt.startswith('go\n\n')
+    listing = await (await client.get('/api/sessions')).json()
+    assert {s['name']: s['parent'] for s in listing}['boss-1'] == 'boss:4'
+
+
+@pytest.mark.asyncio
+async def test_spawn_refuses_beyond_limit(gateway, monkeypatch):
+    client, rt, started, _ = gateway
+    monkeypatch.setenv('DEVBOX_SPAWN_LIMIT', '2')
+    for _ in range(2):
+        assert (await client.post('/api/sessions/boss/spawn', json={})).status == 200
+    response = await client.post('/api/sessions/boss/spawn', json={})
+    assert response.status == 400 and 'DEVBOX_SPAWN_LIMIT' in (await response.json())['error']
+    assert len(started) == 2
+
+
+@pytest.mark.asyncio
+async def test_top_level_spawn_has_no_parent_or_limit(gateway, monkeypatch):
+    client, rt, started, _ = gateway
+    monkeypatch.setenv('DEVBOX_SPAWN_LIMIT', '1')
+    for _ in range(2):
+        body = await (await client.post('/api/spawn', json={})).json()
+        assert body['parent'] == ''
+    assert store.read_meta(body['name'])['parent'] == ''
+
+
+@pytest.mark.asyncio
+async def test_failed_start_discards_session_and_worktree(gateway, monkeypatch):
+    client, rt, started, repo = gateway
+
+    def boom(*args):
+        raise RuntimeError('zellij failed')
+    monkeypatch.setattr(spawn, 'start_agent', boom)
+    async def fake_kill(name):
+        rt.sessions.pop(name)
+    rt.kill = fake_kill
+    response = await client.post('/api/sessions/boss/spawn', json={'worktree': 'feat/z', 'origin_cwd': str(repo)})
+    assert response.status == 503
+    assert 'boss-1' not in rt.sessions and not (repo.parent / 'proj-feat-z').exists()
+
+
+@pytest.mark.asyncio
+async def test_worktree_rejected_across_environments(gateway):
+    client, *_ = gateway
+    response = await client.post('/api/sessions/boss/spawn', json={'worktree': 'b', 'environment': 'other'})
+    assert response.status == 400
+
+
+def test_remote_rpc_spawn_and_worktree(monkeypatch, repo):
+    import remote
+    calls = []
+    monkeypatch.setattr(spawn, 'start_agent', lambda *a: calls.append(a))
+    assert remote.rpc({'operation': 'spawn', 'session': 's', 'cwd': '/', 'spec': {}, 'prompt': 'p'}) == {'ok': True}
+    assert calls == [('s', '/', {}, 'p')]
+    assert Path(remote.rpc({'operation': 'worktree', 'cwd': str(repo), 'branch': 'r'})['path']).is_dir()
+
+
+def test_bootstrap_ships_spawn_module():
+    import base64, io, tarfile, bootstrap
+    names = tarfile.open(fileobj=io.BytesIO(base64.b64decode(bootstrap.archive())), mode='r:gz').getnames()
+    assert 'spawn.py' in names and 'skills/devbox-spawn/SKILL.md' in names

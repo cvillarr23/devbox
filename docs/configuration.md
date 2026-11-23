@@ -12,6 +12,8 @@
 | `DEVBOX_SECURE_COOKIE` | unset | Set `1` when HTTPS terminates at a reverse proxy |
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
 | `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
+| `DEVBOX_SPAWN_LIMIT` | `5` | Most live child sessions one parent may `devbox spawn`; `0` disables the limit |
+| `DEVBOX_PUBLIC_URL` | `http://localhost:$DEVBOX_PORT` | Base URL `devbox spawn` prints for the child session |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
 | `DEVBOX_CODEX_SOCKET` | autodetected | Optional existing local Codex daemon Unix socket |
 
@@ -52,6 +54,10 @@ Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces th
 `devbox-session` prints the current session name; `devbox-session --json` adds the pane and detection source. `devbox-notes`, `devbox-open`, `devbox forward` and `devbox-status show` use the same resolver, and an explicit `--session NAME` overrides it.
 
 Detection tries these in order: the pane a Claude background job is attached from, `DEVBOX_SESSION` (set by the remote relay), `ZELLIJ_SESSION_NAME`, and an exact Codex/Claude thread ID in the session agent registry with a matching live PID and process start time. Missing or ambiguous identity exits nonzero with an actionable error. Working directories and the existence of a single session are never used as guesses. Status hooks keep their silent no-op behavior outside a session.
+
+## Spawning child sessions
+
+`devbox spawn [--name N] [--environment E] [--cwd DIR | --worktree BRANCH] [--agent claude|codex] [--model M] [--permission-mode plan|auto] [--prompt TEXT|-]` creates a session, optionally a git worktree beside the current repository, starts the agent with the prompt, and prints the child's name and URL. The child's `meta.json` records `parent: <session>[:<pane>]` from the detected session (never from an argument), and the dashboard API returns it as `parent`. The prompt gets one line naming the parent and how to message it. It works for local and managed environments; a worktree needs the child in the caller's own environment. The `devbox-spawn` skill covers when to spawn and how to brief a child.
 
 ## Network behavior
 

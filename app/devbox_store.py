@@ -19,8 +19,9 @@ import codex_daemon
 
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
-META_DEFAULTS = {"title": "", "description": "", "cwd": "", "color": ""}
-META_MAX_LEN = {"title": 80, "description": 500, "cwd": 4096, "color": 7}
+PARENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}(:[0-9]+)?$")
+META_DEFAULTS = {"title": "", "description": "", "cwd": "", "color": "", "parent": ""}
+META_MAX_LEN = {"title": 80, "description": 500, "cwd": 4096, "color": 7, "parent": 80}
 
 
 class InvalidMeta(ValueError):
@@ -133,6 +134,9 @@ def _validate(patch):
     color = patch.get("color")
     if color and not HEX_COLOR_RE.match(color):
         raise InvalidMeta("color must look like #rrggbb")
+    parent = patch.get("parent")
+    if parent and not PARENT_RE.match(parent):
+        raise InvalidMeta("parent must look like session or session:pane")
     cwd = patch.get("cwd")
     if cwd and not (os.path.isabs(cwd) and os.path.isdir(cwd)):
         raise InvalidMeta("cwd must be an existing absolute directory")
@@ -145,6 +149,32 @@ def update_meta(name, patch):
         meta.update(patch)
         _atomic_write(os.path.join(session_dir(name), "meta.json"), json.dumps(meta, indent=2) + "\n")
     return meta
+
+
+def parent_session(meta):
+    """The session half of a meta `parent` link ("session" or "session:pane")."""
+    return meta.get("parent", "").partition(":")[0]
+
+
+def child_links(parent):
+    """{child session: its recorded `parent` string} for sessions linked to `parent`."""
+    links = {}
+    root = sessions_root()
+    for entry in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        if not valid_name(entry):
+            continue
+        try:
+            link = read_meta(entry)["parent"]
+        except (OSError, ValueError):
+            continue
+        if link.partition(":")[0] == parent:
+            links[entry] = link
+    return links
+
+
+def children(parent):
+    """Names of sessions whose meta links to `parent`."""
+    return list(child_links(parent))
 
 
 def read_notes(name):

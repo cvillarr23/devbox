@@ -11,6 +11,7 @@ from pathlib import Path
 
 import devbox_store as store
 import environments
+import spawn as child_session
 from browser import Browser
 
 ROOT = Path(__file__).resolve().parent
@@ -29,13 +30,13 @@ class Remote:
             stderr=asyncio.subprocess.DEVNULL, limit=2_000_000)
         await self.call({'operation': 'hello'})
 
-    async def call(self, data):
+    async def call(self, data, timeout=15):
         async with self.lock:
             if not self.proc or self.proc.returncode is not None:
                 raise RuntimeError('Target control connection is offline; reconnect explicitly')
             self.proc.stdin.write(json.dumps(data).encode() + b'\n')
             await self.proc.stdin.drain()
-            line = await asyncio.wait_for(self.proc.stdout.readline(), 15)
+            line = await asyncio.wait_for(self.proc.stdout.readline(), timeout)
             if not line:
                 raise RuntimeError('Target control connection closed')
             result = json.loads(line)
@@ -201,6 +202,79 @@ class Runtime:
                 for a in self.remote_states[name]['agents']) else self.remote_states[name]['state']
         return self.status(name)
 
+    async def spawn(self, parent, args):
+        """Start a child session for `parent` (None for a top-level spawn)."""
+        spec = child_session.plan(args)
+        link = self._parent_link(parent, args.get('pane'))
+        self._check_spawn_limit(parent)
+        spec['environment'] = spec['environment'] if args.get('environment') else self._default_environment(parent)
+        name = spec['name'] or child_session.child_name(parent, set(self.sessions))
+        if name in self.sessions:
+            raise ValueError('Session already exists')
+        worktree = None
+        try:
+            cwd, worktree = await self._spawn_cwd(parent, spec, args.get('origin_cwd', ''))
+            await self.ensure(name, spec['environment'], cwd)
+            if link:
+                store.update_meta(name, {'parent': link})
+            await self._start_agent(name, spec, child_session.child_prompt(spec['prompt'], link))
+        except BaseException:
+            await self._discard_spawn(name, parent, worktree)
+            raise
+        return {'name': name, 'url': self._session_url(name), 'parent': link,
+                'cwd': self.sessions[name]['cwd'], 'environment': spec['environment']}
+
+    @staticmethod
+    def _parent_link(parent, pane):
+        if not parent:
+            return ''
+        return parent + (':' + str(pane) if str(pane or '').isdigit() else '')
+
+    def _check_spawn_limit(self, parent):
+        limit = int(os.environ.get('DEVBOX_SPAWN_LIMIT', '5'))
+        live = [c for c in store.children(parent) if c in self.sessions] if parent else []
+        if parent and limit > 0 and len(live) >= limit:
+            raise ValueError('%s already has %d child sessions (DEVBOX_SPAWN_LIMIT=%d); end one first' % (parent, len(live), limit))
+
+    def _default_environment(self, parent):
+        return self.sessions[parent]['environment'] if parent in self.sessions else 'local'
+
+    async def _spawn_cwd(self, parent, spec, origin_cwd):
+        """Resolve the child's directory; returns (cwd, created worktree path or None)."""
+        if not spec['worktree']:
+            return spec['cwd'], None
+        if not parent or self.sessions[parent]['environment'] != spec['environment']:
+            raise ValueError('--worktree needs the child in the same environment as the session that spawns it')
+        if self.sessions[parent]['target']['type'] != 'local' and parent not in self.remotes:
+            raise ValueError('Reconnect the target before spawning into it')
+        origin = origin_cwd or self.sessions[parent]['cwd']
+        if self.sessions[parent]['target']['type'] == 'local':
+            path = await asyncio.to_thread(child_session.create_worktree, origin, spec['worktree'])
+        else:
+            path = (await self.remotes[parent].call({'operation': 'worktree', 'cwd': origin, 'branch': spec['worktree']}))['path']
+        return path, path
+
+    async def _start_agent(self, name, spec, prompt):
+        entry = self.sessions[name]
+        if entry['target']['type'] == 'local':
+            await asyncio.to_thread(child_session.start_agent, name, entry['cwd'], spec, prompt)
+        else:
+            await self.remotes[name].call({'operation': 'spawn', 'session': name, 'cwd': entry['cwd'],
+                                           'spec': spec, 'prompt': prompt}, timeout=30)
+
+    async def _discard_spawn(self, name, parent, worktree):
+        """Undo a half-made spawn: the session if it got far enough, and the worktree we created."""
+        if name in self.sessions:
+            with contextlib.suppress(Exception):
+                await self.kill(name)
+        if worktree and parent in self.sessions and self.sessions[parent]['target']['type'] == 'local':
+            await asyncio.to_thread(child_session.remove_worktree, self.sessions[parent]['cwd'], worktree)
+
+    @staticmethod
+    def _session_url(name):
+        base = os.environ.get('DEVBOX_PUBLIC_URL', '').rstrip('/') or 'http://localhost:' + os.environ.get('DEVBOX_PORT', '7680')
+        return base + '/view/' + name
+
     async def operation(self, name, operation, args):
         if name not in self.sessions:
             raise ValueError('Unknown session')
@@ -211,6 +285,8 @@ class Runtime:
             return await self.browser.open(name, args['url'], args.get('target', os.environ.get('DEVBOX_OPEN_TARGET', 'remote')))
         if operation == 'forward':
             return await self.forward(name, args['port'])
+        if operation == 'spawn':
+            return await self.spawn(name, args)
         if operation == 'notes':
             action = args['action']
             if action == 'cat':

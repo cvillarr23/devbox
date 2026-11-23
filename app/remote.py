@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent
 os.environ.setdefault('DEVBOX_STATE_DIR', str(Path.home() / '.local/state/devbox'))
 sys.path.insert(0, str(ROOT))
 import devbox_store as store
+import spawn as child_session
 
 
 def queue_request(operation, args):
@@ -122,6 +123,11 @@ def rpc(request):
         if not os.path.isabs(cwd) or not os.path.isdir(cwd):
             raise ValueError('Working directory does not exist on target')
         return {'cwd': cwd}
+    if op == 'worktree':
+        return {'path': child_session.create_worktree(request['cwd'], request['branch'])}
+    if op == 'spawn':
+        child_session.start_agent(request['session'], request['cwd'], request['spec'], request['prompt'])
+        return {'ok': True}
     if op == 'kill':
         name = request['session']
         if not store.valid_name(name):

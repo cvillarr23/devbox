@@ -52,6 +52,34 @@ def current_session(explicit=None):
         raise ValueError(str(exc)) from None
 
 
+def spawn_request(args):
+    prompt = sys.stdin.read() if args.prompt == '-' else args.prompt
+    fields = {'name': args.name, 'environment': args.environment, 'cwd': args.cwd, 'worktree': args.worktree,
+              'agent': args.agent, 'model': args.model, 'permission_mode': args.permission_mode, 'prompt': prompt,
+              'origin_cwd': os.getcwd()}
+    return {k: v for k, v in fields.items() if v}
+
+
+def run_spawn(args):
+    """Spawn a child of the detected session; with no session, a top-level one."""
+    data = spawn_request(args)
+    try:
+        parent = current_session()
+    except ValueError:
+        parent = None
+    if parent:
+        result = invoke(parent['session'], 'spawn', {**data, 'pane': parent['pane']})
+    elif os.environ.get('DEVBOX_REMOTE') == '1':
+        raise ValueError('No devbox session; run inside one')
+    else:
+        result = request('/api/spawn', data)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(result['name'])
+        print(result['url'])
+
+
 def main():
     command = sys.argv[1]
     parser = argparse.ArgumentParser(prog=command)
@@ -95,7 +123,20 @@ def main():
         forward = sub.add_parser('forward')
         forward.add_argument('port', type=int)
         forward.add_argument('--session')
+        spawn = sub.add_parser('spawn', help='start a child session running an agent')
+        spawn.add_argument('--name')
+        spawn.add_argument('--environment')
+        where = spawn.add_mutually_exclusive_group()
+        where.add_argument('--cwd')
+        where.add_argument('--worktree', metavar='BRANCH', help='create a git worktree for BRANCH from the current repo')
+        spawn.add_argument('--agent', choices=('claude', 'codex'))
+        spawn.add_argument('--model')
+        spawn.add_argument('--permission-mode', choices=('plan', 'auto'))
+        spawn.add_argument('--prompt', metavar='TEXT|-', help='initial prompt; - reads stdin')
+        spawn.add_argument('--json', action='store_true')
         args = parser.parse_args(sys.argv[2:])
+        if args.command == 'spawn':
+            return run_spawn(args)
         if args.command == 'doctor':
             result = invoke(current_session()['session'], 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
         elif args.command == 'forward':
