@@ -24,3 +24,10 @@ def test_report_includes_platform_and_confinement(monkeypatch):
     report = diagnostics.report()
     assert report['platform']['machine']
     assert set(report['confinement']) == {'apparmor', 'seccomp'}
+
+
+def test_report_lists_gh_with_hint_when_missing(monkeypatch):
+    monkeypatch.setattr(diagnostics.shutil, 'which', lambda name: None)
+    gh = diagnostics.report()['tools']['gh']
+    assert gh['available'] is False
+    assert 'GH_VERSION' in gh['hint']
