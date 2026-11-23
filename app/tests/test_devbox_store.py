@@ -27,7 +27,7 @@ class StoreTest(unittest.TestCase):
             store.session_dir("../etc")
 
     def test_meta_defaults(self):
-        self.assertEqual(store.read_meta("s1"), {"title": "", "description": "", "cwd": "", "color": ""})
+        self.assertEqual(store.read_meta("s1"), {"title": "", "description": "", "cwd": "", "color": "", "parent": ""})
 
     def test_update_meta_merges_and_persists(self):
         store.update_meta("s1", {"title": "Fantasy PM"})
@@ -44,6 +44,8 @@ class StoreTest(unittest.TestCase):
             {"title": "x" * 81},
             {"description": "x" * 501},
             {"nope": "x"},
+            {"parent": "a b"},
+            {"parent": "p:x"},
             {"title": 5},
         ]
         for patch in bad:
@@ -51,6 +53,15 @@ class StoreTest(unittest.TestCase):
                 store.update_meta("s1", patch)
         store.update_meta("s1", {"cwd": self.tmp.name, "color": ""})
         self.assertEqual(store.read_meta("s1")["cwd"], self.tmp.name)
+
+    def test_parent_link_and_children(self):
+        store.update_meta("kid1", {"parent": "boss:3"})
+        store.update_meta("kid2", {"parent": "boss"})
+        store.update_meta("other", {"parent": "bossy"})
+        self.assertEqual(store.children("boss"), ["kid1", "kid2"])
+        self.assertEqual(store.parent_session(store.read_meta("kid1")), "boss")
+        self.assertEqual(store.child_links("boss"), {"kid1": "boss:3", "kid2": "boss"})
+        self.assertEqual(store.children("nobody"), [])
 
     def test_notes_empty_then_write(self):
         content, version = store.read_notes("s1")

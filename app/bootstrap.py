@@ -43,7 +43,7 @@ def install_hooks(root, home, managed=False):
             path.with_suffix(path.suffix + '.pre-devbox').write_bytes(path.read_bytes())
         path.write_text(json.dumps(content, indent=2) + '\n')
     for agent in ('claude', 'codex'):
-        for skill in ('devbox-notes', 'devbox-browser'):
+        for skill in ('devbox-notes', 'devbox-browser', 'devbox-spawn'):
             target = home / f'.{agent}/skills/{skill}'
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists() and not target.is_symlink():
@@ -53,7 +53,7 @@ def install_hooks(root, home, managed=False):
 def archive():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
-        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py'):
+        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py', 'spawn.py'):
             tar.add(ROOT / name, arcname=name)
         tar.add(ROOT.parent / 'config/zellij.kdl', arcname='zellij.kdl')
         tar.add(ROOT.parent / 'config/layout.kdl', arcname='layout.kdl')
