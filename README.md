@@ -196,7 +196,7 @@ Each message is stored in the recipient's own state directory, so it survives th
 
 See [configuration](docs/configuration.md) for variables, mounts, credential examples, and runtime behavior.
 
-Docker binds to localhost by default. Kubernetes exposes a ClusterIP. Token authentication protects the gateway, API, terminal WebSockets, and VNC. For external access, use HTTPS and an authenticated reverse proxy. `DEVBOX_AUTH_MODE=proxy` disables app token checks and is intended only when every route is protected by that proxy.
+Docker binds to localhost by default. Kubernetes exposes a ClusterIP. Token authentication protects the gateway, API, terminal WebSockets, and VNC. For external access, use HTTPS and an authenticated reverse proxy. `DEVBOX_AUTH_MODE=proxy` disables app token checks and is intended only when every route is protected by that proxy. Behind Cloudflare Access, prefer `DEVBOX_AUTH_MODE=cloudflare-access`, which verifies the Access JWT itself (see `docs/configuration.md`).
 
 No host networking, privileged container, host Docker socket, or preconfigured personal secrets are required.
 
