@@ -7,7 +7,10 @@
 | `DEVBOX_WORKSPACE` | `/workspace` | Local session starting directory |
 | `DEVBOX_ENVIRONMENTS` | `/etc/devbox/environments.yaml` | Named target configuration |
 | `DEVBOX_OPEN_TARGET` | `remote` | Destination used by `BROWSER` and `xdg-open` |
-| `DEVBOX_AUTH_MODE` | `token` | Token login, or `proxy` for externally authenticated access |
+| `DEVBOX_AUTH_MODE` | `token` | `token` login, `proxy` for externally authenticated access, or `cloudflare-access` to verify the Cloudflare Access JWT |
+| `DEVBOX_ACCESS_TEAM_DOMAIN` | unset | `cloudflare-access` only, required: team domain, e.g. `myteam.cloudflareaccess.com` |
+| `DEVBOX_ACCESS_AUD` | unset | `cloudflare-access` only, required: Access application AUD tag; comma-separated to accept several applications |
+| `DEVBOX_ACCESS_EMAILS` | unset | `cloudflare-access` only, optional: comma-separated allowlist matched case-insensitively against the JWT `email` claim |
 | `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location |
 | `DEVBOX_SECURE_COOKIE` | unset | Set `1` when HTTPS terminates at a reverse proxy |
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
@@ -69,6 +72,8 @@ Browser requests and remote forwarding use argument lists and quoted SSH command
 Behind a reverse proxy, forward the public `Host` header unchanged. The cross-origin check compares the `Origin` header's host with `Host`, so a proxy that rewrites `Host` to the upstream address makes every mutation fail with 403. When TLS ends at the proxy, set `DEVBOX_TRUST_PROXY=1` (with the proxy sending `X-Forwarded-Proto`) or `DEVBOX_SECURE_COOKIE=1` so the login cookie is `Secure`.
 
 In `proxy` authentication mode, protect the whole gateway, including `/s/`, `/browser/`, and `/api/`, with the upstream authentication layer. For local trials, use the default token mode and port-forwarding.
+
+`cloudflare-access` mode removes the token form and verifies the Access JWT on every HTTP request and WebSocket upgrade, including `/s/`, `/browser/`, and `/api/`. The JWT comes from the `Cf-Access-Jwt-Assertion` header, falling back to the `CF_Authorization` cookie. Devbox checks the RS256 signature against the team's keys at `https://<team domain>/cdn-cgi/access/certs`, plus `aud`, `iss=https://<team domain>`, `exp` and `nbf` with 30 seconds of leeway. Keys are cached by `kid`; an unknown `kid` triggers a refetch, at most once every 30 seconds, and devbox rejects every request while it has no keys. Unlike `proxy` mode, a request that bypasses Access, such as one sent straight to the ClusterIP from another pod, gets `401`. `/healthz` stays open for probes. Startup fails if the team domain or AUD is missing. The pod must be able to reach the team domain over HTTPS.
 
 ## Runtime profiles
 

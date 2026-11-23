@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 import aiohttp
 from aiohttp import web
+import access_auth
 import bootstrap
 import devbox_store as store
 import environments
@@ -27,14 +28,10 @@ async def boundary(request, handler):
     # The Unix socket is accessible only to the devbox Unix user. HTTP always
     # requires a token unless explicitly placed behind a trusted auth proxy.
     unix = request.transport.get_extra_info('sockname') == request.app['socket']
-    if not unix and request.path not in ('/healthz', '/login'):
-        token = request.app['token']
-        cookie = request.cookies.get(COOKIE, '')
-        bearer = request.headers.get('Authorization', '').removeprefix('Bearer ')
-        if token and not (secrets.compare_digest(cookie, token) or secrets.compare_digest(bearer, token)):
-            if request.path.startswith('/api/'):
-                return web.json_response({'error': 'Authentication required'}, status=401)
-            raise web.HTTPFound('/login')
+    if not unix and request.path not in _unauthenticated_paths(request.app):
+        denied = await _denied(request)
+        if denied:
+            return denied
         origin = request.headers.get('Origin')
         if origin and urlsplit(origin).netloc != request.host:
             raise web.HTTPForbidden(text='Cross-origin requests are not allowed')
@@ -54,6 +51,35 @@ async def boundary(request, handler):
         return web.json_response({'error': str(exc)}, status=400)
     except (RuntimeError, OSError, asyncio.TimeoutError) as exc:
         return web.json_response({'error': str(exc) or 'Operation timed out'}, status=503)
+
+
+def _unauthenticated_paths(app):
+    """Access mode has no token form, so `/login` must not be reachable around the JWT check."""
+    return ('/healthz',) if app.get('access') else ('/healthz', '/login')
+
+
+async def _denied(request):
+    """The response that rejects an unauthenticated request, or None if it may proceed."""
+    if request.app.get('access'):
+        if await request.app['access'].verify(request, request.app['client']):
+            return None
+        return _access_denied(request)
+    token = request.app['token']
+    cookie = request.cookies.get(COOKIE, '')
+    bearer = request.headers.get('Authorization', '').removeprefix('Bearer ')
+    if token and not (secrets.compare_digest(cookie, token) or secrets.compare_digest(bearer, token)):
+        if request.path.startswith('/api/'):
+            return web.json_response({'error': 'Authentication required'}, status=401)
+        raise web.HTTPFound('/login')
+    return None
+
+
+def _access_denied(request):
+    if request.path.startswith(('/api/', '/s/', '/browser/')):
+        return web.json_response({'error': 'Authentication required'}, status=401)
+    return web.Response(status=401, content_type='text/html', text=(
+        '<!doctype html><meta name="viewport" content="width=device-width"><title>Devbox</title>'
+        '<h1>Devbox</h1><p>Sign in through Cloudflare Access.</p>'))
 
 
 async def login(request):
@@ -303,8 +329,10 @@ def create_app(runtime=None):
     app['socket'] = os.environ.get('DEVBOX_SOCKET', '/tmp/devbox-control.sock')
     token_file = Path(os.environ.get('DEVBOX_TOKEN_FILE', str(Path(store.state_dir()) / 'access-token')))
     auth = os.environ.get('DEVBOX_AUTH_MODE', 'token')
-    if auth not in ('token', 'proxy'):
-        raise ValueError('DEVBOX_AUTH_MODE must be token or proxy')
+    if auth not in ('token', 'proxy', 'cloudflare-access'):
+        raise ValueError('DEVBOX_AUTH_MODE must be token, proxy or cloudflare-access')
+    if auth == 'cloudflare-access':
+        app['access'] = access_auth.CloudflareAccess.from_env()
     if auth == 'token':
         if not token_file.exists():
             token_file.parent.mkdir(parents=True, exist_ok=True)
