@@ -45,7 +45,9 @@ Open <http://localhost:7680> and enter the access token. Create a session, choos
 
 Home, agent login configuration, Chrome's profile, and session state persist in Docker volumes. Projects use the directory configured by `DEVBOX_PROJECTS`. Mount writable directories owned by UID/GID 1000. No credentials are built into the image; log in to the agent CLIs from a terminal or supply your configuration at runtime.
 
-Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, and Chrome versions. Extend the Dockerfile for project-specific dependencies.
+To use `gh`, run `gh auth login` in a session and choose the device-code flow, which needs no loopback callback. The token is stored in `~/.config/gh` and persists in the home volume; nothing is baked into the image.
+
+Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Extend the Dockerfile for project-specific dependencies.
 
 ## macOS (Apple Silicon, Docker Desktop)
 
