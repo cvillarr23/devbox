@@ -50,7 +50,7 @@ async def check(args):
         doctor = await api('GET', '/api/doctor')
         assert doctor['sandbox']['supported'], doctor['sandbox']
         assert doctor['confinement']['seccomp'] == 2, doctor['confinement']
-        for tool in ('codex', 'claude', 'zellij', 'ttyd', 'google-chrome', 'kubectl'):
+        for tool in ('codex', 'claude', 'zellij', 'ttyd', 'google-chrome', 'kubectl', 'gh'):
             assert doctor['tools'][tool].get('ok'), (tool, doctor['tools'][tool])
         print(f'Doctor on {doctor["platform"]["machine"]} '
               f'(AppArmor {doctor["confinement"]["apparmor"]}): passed')

@@ -45,7 +45,9 @@ Open <http://localhost:7680> and enter the access token. Create a session, choos
 
 Home, agent login configuration, Chrome's profile, and session state persist in Docker volumes. Projects use the directory configured by `DEVBOX_PROJECTS`. Mount writable directories owned by UID/GID 1000. No credentials are built into the image; log in to the agent CLIs from a terminal or supply your configuration at runtime.
 
-Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, and Chrome versions. Extend the Dockerfile for project-specific dependencies.
+To use `gh`, run `gh auth login` in a session and choose the device-code flow, which needs no loopback callback. The token is stored in `~/.config/gh` and persists in the home volume; nothing is baked into the image.
+
+Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Extend the Dockerfile for project-specific dependencies.
 
 ## macOS (Apple Silicon, Docker Desktop)
 
@@ -173,6 +175,22 @@ printf '%s\n' 'Replacement notes' | devbox-notes write
 ```
 
 Notes are shared with the sidebar. Browser edits use version checks to detect conflicts. Remote CLI notes are relayed to the central store. Killing a session ends its processes and archives its notes/metadata.
+
+## Messages between sessions
+
+Agents in different sessions message each other with `devbox-msg` (also `devbox msg`). The `devbox-msg` skill tells agents when to use each kind.
+
+```sh
+devbox-msg who                                       # me, parent, children, siblings
+devbox-msg send parent --kind question "A or B? I lean A because ..."
+devbox-msg send ui-143:3 --kind review "Round 1 posted on PR #12"
+devbox-msg inbox --unread
+devbox-msg ack --all
+```
+
+An address is `SESSION`, `SESSION:PANE`, `parent`, `children` or `siblings`. The last three resolve through the parent link `devbox spawn` records. A bare session goes to its only agent. When a session runs several agents, `send` refuses and lists their panes. The sender always comes from session detection, never from an argument.
+
+Each message is stored in the recipient's own state directory, so it survives the recipient being offline and container restarts. Messages to a disconnected managed target wait on devbox until it reconnects. The agent hook shows unread messages on the next prompt or session start. Urgent kinds (`question`, `blocker`, `contract`, `review`, `github`) also hold a busy agent at the end of its turn. An idle agent gets a typed one-line pointer after about 30 seconds. Nothing is ever typed into a working or waiting agent. Session cards and the view toolbar show the unread count.
 
 ## Configuration and access
 

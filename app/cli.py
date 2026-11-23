@@ -86,8 +86,114 @@ def run_spawn(args):
         print(result['url'])
 
 
+MSG_USAGE = """devbox-msg send [TO] [--to TO] [--kind KIND] TEXT|-
+    TO is SESSION, SESSION:PANE, parent, children or siblings.
+devbox-msg inbox [--unread] [--follow] [--json]
+devbox-msg ack ID... | --all
+devbox-msg who [--json]"""
+
+
+def _msg_parser(prog):
+    import messages
+    parser = argparse.ArgumentParser(prog=prog, usage=MSG_USAGE)
+    sub = parser.add_subparsers(dest='action', required=True)
+    send = sub.add_parser('send')
+    send.add_argument('words', nargs='+', metavar='[TO] TEXT')
+    send.add_argument('--to')
+    send.add_argument('--kind', choices=messages.KINDS, default='update')
+    inbox = sub.add_parser('inbox')
+    inbox.add_argument('--unread', action='store_true')
+    inbox.add_argument('--follow', action='store_true')
+    inbox.add_argument('--json', action='store_true')
+    ack = sub.add_parser('ack')
+    ack.add_argument('ids', nargs='*', type=int)
+    ack.add_argument('--all', action='store_true')
+    sub.add_parser('who').add_argument('--json', action='store_true')
+    return parser
+
+
+def _msg_identity():
+    """Sender identity comes only from detection; send has no --from or --session."""
+    me = current_session()
+    return me['session'], me['pane'] or os.environ.get('ZELLIJ_PANE_ID')
+
+
+def _msg_text(args):
+    """`send parent hi` and `send --to parent hi` both work; `-` reads stdin."""
+    to, words = (args.to, args.words) if args.to else (args.words[0], args.words[1:])
+    if not words:
+        raise ValueError('give TO and TEXT, or --to TO TEXT')
+    return to, sys.stdin.read() if words == ['-'] else ' '.join(words)
+
+
+def _msg_send(args):
+    session, pane = _msg_identity()
+    to, text = _msg_text(args)
+    result = invoke(session, 'msg-send', {'from_pane': pane, 'to': to, 'kind': args.kind, 'body': text})
+    for item in result['delivered']:
+        print(f"{item['to']}: " + (f"#{item['id']} " if item['id'] else '') + item['delivery'])
+
+
+def _msg_inbox(args):
+    import messages
+    import time
+    session, pane = _msg_identity()
+    shown = set()
+    while True:
+        for message in messages.inbox(session, pane, unread=args.unread):
+            if message['id'] not in shown:
+                shown.add(message['id'])
+                print(json.dumps(message) if args.json else ('  ' if message['read_at'] else '* ') + messages.render(message), flush=True)
+        if not args.follow:
+            return
+        time.sleep(1)
+
+
+def _msg_ack(args):
+    import messages
+    if not args.all and not args.ids:
+        raise ValueError('give message ids or --all')
+    session, pane = _msg_identity()
+    acked = messages.ack(session, pane, None if args.all else args.ids)
+    print('acked ' + (', '.join(f'#{i}' for i in acked) if acked else 'nothing'))
+
+
+def _msg_who(args):
+    session, pane = _msg_identity()
+    result = invoke(session, 'msg-who', {'from_pane': pane})
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return
+    rows = {r['name']: r for r in result['sessions']}
+    lines = [('me', result['me']), ('parent', result['parent'])]
+    lines += [('child', c) for c in result['children']] + [('sibling', s) for s in result['siblings']]
+    for role, address in lines:
+        row = rows.get((address or '').partition(':')[0], {})
+        status = row.get('status', 'gone' if address else '')
+        unread = f" {row['unread']} unread" if row.get('unread') else ''
+        print(f"{role:8} {address or '-':28} {status}{unread}")
+
+
+def msg_main(argv, prog='devbox-msg'):
+    if os.environ.get('DEVBOX_REMOTE') == '1':
+        # The inbox is read from this target's own helper state, like the hooks write it.
+        os.environ.setdefault('DEVBOX_STATE_DIR', str(Path.home() / '.local/state/devbox'))
+    parser = _msg_parser(prog)
+    # `send parent --kind question TEXT` leaves TEXT after an option, which
+    # argparse hands back as extras rather than as more `words`.
+    args, extras = parser.parse_known_args(argv)
+    if extras and (args.action != 'send' or any(e.startswith('-') and e != '-' for e in extras)):
+        parser.error('unrecognized arguments: ' + ' '.join(extras))
+    if extras:
+        args.words += extras
+    {'send': _msg_send, 'inbox': _msg_inbox, 'ack': _msg_ack, 'who': _msg_who}[args.action](args)
+
+
 def main():
     command = sys.argv[1]
+    if command == 'devbox-msg' or (command == 'devbox' and sys.argv[2:3] == ['msg']):
+        return msg_main(sys.argv[2:] if command == 'devbox-msg' else sys.argv[3:],
+                        'devbox-msg' if command == 'devbox-msg' else 'devbox msg')
     parser = argparse.ArgumentParser(prog=command)
     if command == 'devbox-open':
         parser.add_argument('--target', choices=('local', 'remote'), default=os.environ.get('DEVBOX_OPEN_TARGET', 'remote'))

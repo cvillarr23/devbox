@@ -30,13 +30,16 @@ def confinement():
             'seccomp': int(seccomp) if seccomp and seccomp.isdigit() else None}
 
 
+MISSING_HINTS = {'gh': 'Rebuild the image; the GitHub CLI is installed from the pinned GH_VERSION release.'}
+
+
 def report():
     tools = {}
     for name, args in (
         ('codex', ['--version']), ('claude', ['--version']), ('zellij', ['--version']),
         ('ttyd', ['--version']), ('google-chrome', ['--version']), ('node', ['--version']),
         ('python3', ['--version']), ('git', ['--version']),
-        ('kubectl', ['version', '--client', '-o', 'json']),
+        ('kubectl', ['version', '--client', '-o', 'json']), ('gh', ['--version']),
     ):
         executable = shutil.which(name)
         entry = {'available': bool(executable)}
@@ -49,6 +52,8 @@ def report():
                 entry.update(version=output.splitlines()[0][:300] if output else '', ok=result.returncode == 0)
             except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
                 entry['ok'] = False
+        if not executable and name in MISSING_HINTS:
+            entry['hint'] = MISSING_HINTS[name]
         tools[name] = entry
     sandbox = {'supported': False}
     if shutil.which('codex'):

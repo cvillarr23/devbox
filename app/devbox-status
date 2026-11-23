@@ -7,9 +7,11 @@ title, dashboard badge, notifications).
   devbox-status show [--session NAME]       print the session's status JSON
 
 Wired into /etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
-`hook` never writes to stdout (Codex treats Stop/PostToolUse stdout as JSON
-and Claude injects some hooks' stdout into context) and always exits 0, so a
-bug here can never break an agent. Set DEVBOX_STATUS_DEBUG=1 to see errors.
+`hook` also delivers devbox messages: on SessionStart and UserPromptSubmit it
+prints unread messages as additionalContext, and on Stop it blocks while
+urgent ones are unread. That JSON is the only thing it ever writes to stdout
+(agents parse or inject hook stdout), and it always exits 0, so a bug here
+can never break an agent. Set DEVBOX_STATUS_DEBUG=1 to see errors.
 """
 import argparse
 import json
@@ -19,6 +21,7 @@ import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import devbox_store as store  # noqa: E402
+import messages  # noqa: E402
 import agent_process  # noqa: E402
 from current_session import detect, SessionDetectionError  # noqa: E402
 
@@ -60,6 +63,28 @@ def cmd_hook(agent):
     if not session or not pane or not store.valid_name(session):
         return
     store.record_agent_event(session, pane, agent, payload, process["pid"] if process else agent_pid())
+    _deliver_messages(payload, session, pane)
+
+
+def _hook_output(payload, unread):
+    """Hook JSON delivering UNREAD for this event, and the messages it delivers."""
+    event = payload.get("hook_event_name")
+    if event in ("SessionStart", "UserPromptSubmit") and unread:
+        return {"hookSpecificOutput": {"hookEventName": event,
+                                       "additionalContext": messages.context_text(unread)}}, unread
+    urgent = [m for m in unread if m["kind"] in messages.URGENT]
+    # stop_hook_active means this Stop already follows one of our blocks.
+    if event == "Stop" and urgent and not payload.get("stop_hook_active"):
+        reason = "Unread urgent devbox messages arrived; handle them before stopping.\n"
+        return {"decision": "block", "reason": reason + messages.context_text(urgent)}, urgent
+    return None, []
+
+
+def _deliver_messages(payload, session, pane):
+    output, delivered = _hook_output(payload, messages.pending(session, pane))
+    if output:
+        messages.ack(session, pane, [m["id"] for m in delivered])
+        sys.stdout.write(json.dumps(output) + "\n")
 
 
 def main():

@@ -18,6 +18,7 @@ os.environ.setdefault('DEVBOX_STATE_DIR', str(Path.home() / '.local/state/devbox
 sys.path.insert(0, str(ROOT))
 import devbox_store as store
 import spawn as child_session
+import messages
 
 
 def queue_request(operation, args):
@@ -60,8 +61,15 @@ def snapshot(names, responses):
             path.unlink(missing_ok=True)
             continue
         requests.append(json.loads(path.read_text()))
-    states = {name: store.session_status(name) for name in names if store.valid_name(name)}
+    states = {name: _session_state(name) for name in names if store.valid_name(name)}
     return {'states': states, 'requests': requests}
+
+
+def _session_state(name):
+    """Agent status plus unread count; nudges idle agents about urgent mail."""
+    state = {**store.session_status(name), 'unread': messages.unread_count(name)}
+    messages.nudge_due(name, lambda: state)
+    return state
 
 
 def attach(name, cwd):
@@ -134,6 +142,9 @@ def rpc(request):
             raise ValueError('Invalid session')
         subprocess.run(['zellij', 'delete-session', '-f', name], capture_output=True, timeout=10)
         return {'ok': True}
+    if op == 'deliver':
+        return {'id': messages.deliver(request['session'], request['from'], request.get('pane'),
+                                       request['kind'], request['body'])}
     if op == 'ack':
         store.ack_done(request['session'])
         return {'ok': True}

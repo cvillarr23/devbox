@@ -1,6 +1,7 @@
 """Single-user session lifecycle, remote control, and explicit TCP forwards."""
 import asyncio
 import contextlib
+import functools
 import json
 import os
 import signal
@@ -12,6 +13,8 @@ from pathlib import Path
 import devbox_store as store
 import environments
 import spawn as child_session
+import message_router
+import messages
 from browser import Browser
 
 ROOT = Path(__file__).resolve().parent
@@ -185,9 +188,10 @@ class Runtime:
         if proc and proc.returncode is not None:
             entry['connection'] = 'disconnected'
         if entry['target']['type'] == 'local':
-            result = store.session_status(name)
+            result = {**store.session_status(name), 'unread': messages.unread_count(name)}
         else:
             result = self.remote_states.get(name, {'state': 'unavailable', 'agents': []})
+            result = {**result, 'unread': result.get('unread', 0) + message_router.queued_count(name)}
         return {**result, 'connection': entry['connection']}
 
     async def ack(self, name):
@@ -286,6 +290,10 @@ class Runtime:
             return await self.forward(name, args['port'])
         if operation == 'spawn':
             return await self.spawn(name, args)
+        if operation == 'msg-send':
+            return await message_router.send(self, name, args)
+        if operation == 'msg-who':
+            return message_router.who(self, name, args)
         if operation == 'notes':
             action = args['action']
             if action == 'cat':
@@ -300,12 +308,25 @@ class Runtime:
             return {'ok': True}
         raise ValueError('Unknown operation')
 
+    def _nudge_local(self):
+        """Nudge idle local agents about urgent unread messages (the remote
+        helper does the same for its sessions inside each snapshot)."""
+        for name, entry in list(self.sessions.items()):
+            if entry['target']['type'] == 'local':
+                messages.nudge_due(name, functools.partial(store.session_status, name))
+
     async def poll(self):
+        ticks = 0
         while True:
+            ticks += 1
+            if ticks % 5 == 0:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(self._nudge_local)
             for name, remote in list(self.remotes.items()):
                 if self.sessions[name]['connection'] != 'connected':
                     continue
                 try:
+                    await message_router.flush_outbox(self, name)
                     result = await remote.call({'operation': 'snapshot', 'sessions': [name],
                                                 'responses': self.responses.pop(name, {})})
                     self.remote_states[name] = result['states'][name]
