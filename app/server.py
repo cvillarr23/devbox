@@ -175,7 +175,7 @@ def public_entry(rt, name):
             'agent_names': sorted({a['agent'] for a in status['agents']}),
             'folders': [entry['cwd']], 'repositories': []}
     return {**{k: entry[k] for k in ('name', 'port', 'environment', 'connection')},
-            **meta, **details, 'status': status['state']}
+            **meta, **details, 'status': status['state'], 'unread': status.get('unread', 0)}
 
 
 async def session(request):
@@ -235,7 +235,7 @@ async def session(request):
         else:
             result = rt.browser.ack(name, data['id'], data['viewer'], data['status'])
         return web.json_response(result)
-    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn') and method == 'POST':
+    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn', 'msg-send', 'msg-who') and method == 'POST':
         return web.json_response(await rt.operation(name, 'notes' if action == 'notes-command' else action, data))
     raise web.HTTPNotFound()
 
