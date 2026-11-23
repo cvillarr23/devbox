@@ -6,8 +6,7 @@ title, dashboard badge, notifications).
                                             hook JSON on stdin
   devbox-status show [--session NAME]       print the session's status JSON
 
-Installed by scripts/dev-workspace-setup.sh and wired into
-/etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
+Wired into /etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
 `hook` also delivers devbox messages: on SessionStart and UserPromptSubmit it
 prints unread messages as additionalContext, and on Stop it blocks while
 urgent ones are unread. That JSON is the only thing it ever writes to stdout
@@ -20,10 +19,7 @@ import os
 import sys
 import traceback
 
-for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-workspace"):
-    if os.path.isfile(os.path.join(d, "devbox_store.py")):
-        sys.path.insert(0, d)
-        break
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import devbox_store as store  # noqa: E402
 import messages  # noqa: E402
 import agent_process  # noqa: E402

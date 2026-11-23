@@ -38,7 +38,17 @@ class Conflict(Exception):
 
 
 def state_dir():
-    return os.environ.get("DEVBOX_STATE_DIR", "/var/lib/dev-workspace")
+    return os.environ.get("DEVBOX_STATE_DIR", "/data")
+
+
+def public_base_url():
+    """The externally reachable origin from DEVBOX_PUBLIC_URL, or '' when unset."""
+    return os.environ.get("DEVBOX_PUBLIC_URL", "").rstrip("/")
+
+
+def public_view_url(name):
+    base = public_base_url()
+    return f"{base}/view/{name}" if base else ""
 
 
 def sessions_root():

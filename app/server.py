@@ -68,12 +68,21 @@ async def login(request):
         raise web.HTTPUnauthorized()
     response = web.json_response({'ok': True})
     response.set_cookie(COOKIE, request.app['token'], httponly=True, samesite='Strict',
-                        secure=request.scheme == 'https' or os.environ.get('DEVBOX_SECURE_COOKIE') == '1')
+                        secure=_cookie_secure(request))
     return response
 
 
+def _cookie_secure(request):
+    """Trusting X-Forwarded-Proto is opt-in: any client can send that header."""
+    if request.scheme == 'https' or os.environ.get('DEVBOX_SECURE_COOKIE') == '1':
+        return True
+    if os.environ.get('DEVBOX_TRUST_PROXY') != '1':
+        return False
+    return request.headers.get('X-Forwarded-Proto', '').split(',')[0].strip().lower() == 'https'
+
+
 def page(name):
-    config = {'portStart': 7690, 'publicHost': '', 'tailnetHost': ''}
+    config = {'portStart': 7690, 'publicHost': store.public_base_url(), 'tailnetHost': ''}
     return web.Response(text=(WEB / name).read_text().replace('__DEVBOX_CONFIG__', json.dumps(config)),
                         content_type='text/html', headers={'Cache-Control': 'no-store'})
 
@@ -174,8 +183,10 @@ def public_entry(rt, name):
             (a.get('updated_at', 0) for a in status['agents']), default=None),
             'agent_names': sorted({a['agent'] for a in status['agents']}),
             'folders': [entry['cwd']], 'repositories': []}
+    view_url = store.public_view_url(name)
     return {**{k: entry[k] for k in ('name', 'port', 'environment', 'connection')},
-            **meta, **details, 'status': status['state'], 'unread': status.get('unread', 0)}
+            **meta, **details, 'status': status['state'], 'unread': status.get('unread', 0),
+            **({'view_url': view_url} if view_url else {})}
 
 
 async def session(request):

@@ -1,5 +1,5 @@
 // Notes: a per-session notepad persisted at
-// /var/lib/dev-workspace/sessions/<name>/notes.md. Agents in the session
+// $DEVBOX_STATE_DIR/sessions/<name>/notes.md. Agents in the session
 // write the same file with the `devbox-notes` CLI, so the widget polls for
 // outside changes and never silently overwrites them.
 devbox.registerWidget({
