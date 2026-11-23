@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+import devbox_store as store
+
 _lock = threading.Lock()
 _cache = (0, [])
 
@@ -110,7 +112,7 @@ def threads():
         if time.monotonic() - _cache[0] < 2:
             return _cache[1]
         try:
-            state = Path(os.environ.get('DEVBOX_STATE_DIR', '/var/lib/dev-workspace')) / 'sessions'
+            state = Path(store.state_dir()) / 'sessions'
             uid = state.stat().st_uid if state.exists() else os.getuid()
             configured = os.environ.get('DEVBOX_CODEX_SOCKET')
             paths = [Path(configured)] if configured else list(Path(f'/tmp/codex-daemon-{uid}').glob('*'))

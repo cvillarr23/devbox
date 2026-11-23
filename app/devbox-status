@@ -6,8 +6,7 @@ title, dashboard badge, notifications).
                                             hook JSON on stdin
   devbox-status show [--session NAME]       print the session's status JSON
 
-Installed by scripts/dev-workspace-setup.sh and wired into
-/etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
+Wired into /etc/claude-code/managed-settings.json and /etc/codex/requirements.toml.
 `hook` never writes to stdout (Codex treats Stop/PostToolUse stdout as JSON
 and Claude injects some hooks' stdout into context) and always exits 0, so a
 bug here can never break an agent. Set DEVBOX_STATUS_DEBUG=1 to see errors.
@@ -18,10 +17,7 @@ import os
 import sys
 import traceback
 
-for d in (os.path.dirname(os.path.realpath(__file__)), "/usr/local/lib/dev-workspace"):
-    if os.path.isfile(os.path.join(d, "devbox_store.py")):
-        sys.path.insert(0, d)
-        break
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import devbox_store as store  # noqa: E402
 import agent_process  # noqa: E402
 from current_session import detect, SessionDetectionError  # noqa: E402

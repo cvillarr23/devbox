@@ -13,7 +13,8 @@
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
 | `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
 | `DEVBOX_SPAWN_LIMIT` | `5` | Most live child sessions one parent may `devbox spawn`; `0` disables the limit |
-| `DEVBOX_PUBLIC_URL` | `http://localhost:$DEVBOX_PORT` | Base URL `devbox spawn` prints for the child session |
+| `DEVBOX_PUBLIC_URL` | unset (`devbox spawn` prints `http://localhost:$DEVBOX_PORT`) | Public origin, for example `https://devbox-next.roo-net.cc`. Sets `publicHost` in the dashboard config and adds an absolute `view_url` to each session in the API and to `devbox-session --json`; `devbox spawn` prints it too |
+| `DEVBOX_TRUST_PROXY` | unset | Set `1` to honor `X-Forwarded-Proto: https` for the session cookie's `Secure` flag. Off by default because any client can send the header |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
 | `DEVBOX_CODEX_SOCKET` | autodetected | Optional existing local Codex daemon Unix socket |
 
@@ -64,6 +65,8 @@ Detection tries these in order: the pane a Claude background job is attached fro
 Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.
 
 Browser requests and remote forwarding use argument lists and quoted SSH commands. Environment targets come from operator-mounted configuration; the API does not accept arbitrary backend addresses. HTTP requests reject cross-origin mutations, and each viewer must claim a link before acknowledging it.
+
+Behind a reverse proxy, forward the public `Host` header unchanged. The cross-origin check compares the `Origin` header's host with `Host`, so a proxy that rewrites `Host` to the upstream address makes every mutation fail with 403. When TLS ends at the proxy, set `DEVBOX_TRUST_PROXY=1` (with the proxy sending `X-Forwarded-Proto`) or `DEVBOX_SECURE_COOKIE=1` so the login cookie is `Secure`.
 
 In `proxy` authentication mode, protect the whole gateway, including `/s/`, `/browser/`, and `/api/`, with the upstream authentication layer. For local trials, use the default token mode and port-forwarding.
 

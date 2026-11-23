@@ -52,6 +52,12 @@ def current_session(explicit=None):
         raise ValueError(str(exc)) from None
 
 
+def with_view_url(result):
+    import devbox_store
+    view_url = devbox_store.public_view_url(result['session'])
+    return {**result, 'view_url': view_url} if view_url else result
+
+
 def spawn_request(args):
     prompt = sys.stdin.read() if args.prompt == '-' else args.prompt
     fields = {'name': args.name, 'environment': args.environment, 'cwd': args.cwd, 'worktree': args.worktree,
@@ -95,6 +101,8 @@ def main():
         parser.add_argument('--json', action='store_true', help='include pane and detection source')
         args = parser.parse_args(sys.argv[2:])
         result = current_session(args.session)
+        if args.json:
+            result = with_view_url(result)
         print(json.dumps(result) if args.json else result['session'])
         return
     elif command == 'devbox-notes':

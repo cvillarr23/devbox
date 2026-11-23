@@ -272,8 +272,7 @@ class Runtime:
 
     @staticmethod
     def _session_url(name):
-        base = os.environ.get('DEVBOX_PUBLIC_URL', '').rstrip('/') or 'http://localhost:' + os.environ.get('DEVBOX_PORT', '7680')
-        return base + '/view/' + name
+        return store.public_view_url(name) or 'http://localhost:' + os.environ.get('DEVBOX_PORT', '7680') + '/view/' + name
 
     async def operation(self, name, operation, args):
         if name not in self.sessions:
