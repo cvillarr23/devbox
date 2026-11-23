@@ -63,7 +63,7 @@ button.danger{color:var(--danger);border-color:#e5484d66}
   <a href="/" aria-label="All sessions">←</a>
   <label for="client-mode">Display</label>
   <select id="client-mode"><option value="auto">Auto</option><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select>
-  <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="connection-status" role="status"></span>
+  <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="unread-status" hidden></span><span id="connection-status" role="status"></span>
 </nav>
 <div id="app">
   <section id="browser-panel" hidden style="position:absolute;inset:0;z-index:6;background:var(--bg)"><nav style="padding:.5rem;display:flex;gap:1rem"><button class="btn" id="browser-hide">Back to terminal</button><button class="btn" id="browser-stop">Stop shared browser</button><span id="browser-error" role="alert"></span></nav><iframe id="browser-frame" title="Remote Chrome" allow="clipboard-read; clipboard-write" style="width:100%;height:calc(100% - 48px);border:0"></iframe></section>
@@ -201,6 +201,10 @@ function setStatus(next) {
   const prev = status;
   status = next;
   document.getElementById('connection-status').textContent = next.connection === 'connected' ? '' : 'Disconnected — reconnect from the dashboard';
+  const unread = document.getElementById('unread-status');
+  unread.hidden = !next.unread;
+  unread.textContent = next.unread ? '✉ ' + next.unread : '';
+  unread.title = next.unread + ' unread devbox message' + (next.unread === 1 ? '' : 's') + ' (devbox-msg inbox)';
   if (statusLoaded) notifyTransitions(prev, next);
   statusLoaded = true;
   renderChrome();

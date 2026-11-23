@@ -67,7 +67,9 @@ function card(s) {
   const li=el('li',undefined,'card');li.dataset.session=s.name;if(s.color)li.style.borderLeftColor=s.color;
   const header=el('header'),heading=el('div'),main=link(viewUrl(s.name),s.title||s.name);main.className='title';heading.append(main);
   heading.append(el('div',s.name,'name'));header.append(heading);
-  const badge=el('span',s.status||'idle','badge');badge.dataset.status=s.status;header.append(badge);li.append(header);
+  const badge=el('span',s.status||'idle','badge');badge.dataset.status=s.status;header.append(badge);
+  if(s.unread){const mail=el('span','✉ '+s.unread,'badge');mail.dataset.unread='';mail.title=s.unread+' unread devbox message'+(s.unread===1?'':'s')+' (devbox-msg inbox)';header.append(mail);}
+  li.append(header);
   if(s.description)li.append(el('p',s.description,'desc'));
   const dl=el('dl');
   addTime(dl,'Started',s.started_at,'Start of the current web terminal service; may differ from the original Zellij session start.');

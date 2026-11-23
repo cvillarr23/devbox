@@ -6,7 +6,7 @@ python3 - <<'PY'
 import os
 from pathlib import Path
 for agent in ('claude','codex'):
-    for skill in ('devbox-notes','devbox-browser','devbox-spawn'):
+    for skill in ('devbox-notes','devbox-browser','devbox-spawn','devbox-msg'):
         target=Path.home()/f'.{agent}/skills'/skill
         target.parent.mkdir(parents=True,exist_ok=True)
         if not target.exists() and not target.is_symlink():

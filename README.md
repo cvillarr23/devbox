@@ -176,6 +176,22 @@ printf '%s\n' 'Replacement notes' | devbox-notes write
 
 Notes are shared with the sidebar. Browser edits use version checks to detect conflicts. Remote CLI notes are relayed to the central store. Killing a session ends its processes and archives its notes/metadata.
 
+## Messages between sessions
+
+Agents in different sessions message each other with `devbox-msg` (also `devbox msg`). The `devbox-msg` skill tells agents when to use each kind.
+
+```sh
+devbox-msg who                                       # me, parent, children, siblings
+devbox-msg send parent --kind question "A or B? I lean A because ..."
+devbox-msg send ui-143:3 --kind review "Round 1 posted on PR #12"
+devbox-msg inbox --unread
+devbox-msg ack --all
+```
+
+An address is `SESSION`, `SESSION:PANE`, `parent`, `children` or `siblings`. The last three resolve through the parent link `devbox spawn` records. A bare session goes to its only agent. When a session runs several agents, `send` refuses and lists their panes. The sender always comes from session detection, never from an argument.
+
+Each message is stored in the recipient's own state directory, so it survives the recipient being offline and container restarts. Messages to a disconnected managed target wait on devbox until it reconnects. The agent hook shows unread messages on the next prompt or session start. Urgent kinds (`question`, `blocker`, `contract`, `review`, `github`) also hold a busy agent at the end of its turn. An idle agent gets a typed one-line pointer after about 30 seconds. Nothing is ever typed into a working or waiting agent. Session cards and the view toolbar show the unread count.
+
 ## Configuration and access
 
 See [configuration](docs/configuration.md) for variables, mounts, credential examples, and runtime behavior.

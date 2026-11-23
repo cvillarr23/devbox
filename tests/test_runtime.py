@@ -111,3 +111,4 @@ async def test_remote_bootstrap_program_compiles(state, monkeypatch):
     with tarfile.open(fileobj=io.BytesIO(base64.b64decode(captured['data']))) as tar:
         assert 'agent_process.py' in tar.getnames()
         assert 'skills/devbox-browser/SKILL.md' in tar.getnames()
+        assert {'messages.py', 'pane_input.py', 'skills/devbox-msg/SKILL.md'} <= set(tar.getnames())

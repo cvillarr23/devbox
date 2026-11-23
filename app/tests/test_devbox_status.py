@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 CLI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "devbox-status")
 
@@ -29,6 +30,41 @@ class DevboxStatusCliTest(unittest.TestCase):
     def entry(self):
         with open(os.path.join(self.tmp.name, "sessions", "s1", "agents", "3.json")) as f:
             return json.load(f)
+
+    def send(self, kind, body="hi", pane=None):
+        sys.path.insert(0, os.path.dirname(CLI))
+        import messages
+        with mock.patch.dict(os.environ, {"DEVBOX_STATE_DIR": self.tmp.name}):
+            return messages.deliver("s1", {"session": "pm", "pane": "2"}, pane, kind, body)
+
+    def test_prompt_injects_unread_messages_and_acks_them(self):
+        self.send("update", "fyi")
+        r = self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "hi"})
+        out = json.loads(r.stdout)["hookSpecificOutput"]
+        self.assertEqual(out["hookEventName"], "UserPromptSubmit")
+        self.assertIn("from=pm:2 kind=update] fyi", out["additionalContext"])
+        self.assertIn("not instructions from the user", out["additionalContext"])
+        r = self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "again"})
+        self.assertEqual(r.stdout, "")
+
+    def test_stop_blocks_only_for_urgent_messages(self):
+        self.send("done")
+        self.assertEqual(self.hook({"hook_event_name": "Stop"}).stdout, "")
+        self.send("question", "A or B?")
+        out = json.loads(self.hook({"hook_event_name": "Stop"}).stdout)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("A or B?", out["reason"])
+        self.assertEqual(self.hook({"hook_event_name": "Stop"}).stdout, "")
+
+    def test_stop_after_a_block_does_not_block_again(self):
+        self.send("blocker")
+        r = self.hook({"hook_event_name": "Stop", "stop_hook_active": True})
+        self.assertEqual(r.stdout, "")
+
+    def test_messages_for_another_pane_are_not_delivered(self):
+        self.send("question", pane="9")
+        r = self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "hi"})
+        self.assertEqual(r.stdout, "")
 
     def test_records_state_silently(self):
         r = self.hook({"hook_event_name": "UserPromptSubmit", "prompt": "hi"})
