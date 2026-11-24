@@ -11,7 +11,8 @@
 | `DEVBOX_ACCESS_TEAM_DOMAIN` | unset | `cloudflare-access` only, required: team domain, e.g. `myteam.cloudflareaccess.com` |
 | `DEVBOX_ACCESS_AUD` | unset | `cloudflare-access` only, required: Access application AUD tag; comma-separated to accept several applications |
 | `DEVBOX_ACCESS_EMAILS` | unset | `cloudflare-access` only, optional: comma-separated allowlist matched case-insensitively against the JWT `email` claim |
-| `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location |
+| `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location, used by `token` mode and by `DEVBOX_TOKEN_PORT` |
+| `DEVBOX_TOKEN_PORT` | unset | Optional second HTTP listener that always uses token auth, whatever `DEVBOX_AUTH_MODE` is. For a private fallback ingress only; never expose it publicly ([token port](#token-port)) |
 | `DEVBOX_SECURE_COOKIE` | unset | Set `1` when HTTPS terminates at a reverse proxy |
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
 | `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
@@ -28,7 +29,7 @@
 
 Docker uses a home volume at `/home/devbox` and a state volume at `/data`; projects are a bind mount at `/workspace`. Kubernetes uses the `devbox` PVC for `/data/home` and `/data/state`, and the `devbox-workspace` PVC for `/workspace`. UID/GID 1000 must have write access.
 
-The server generates a random access token only if the configured token file does not exist. Read it using `docker compose exec` or `kubectl exec`; it is not printed into server logs. Tokens must have at least 24 characters.
+The server generates a random access token only if the configured token file does not exist, in `token` mode or whenever `DEVBOX_TOKEN_PORT` is set. Read it using `docker compose exec` or `kubectl exec`; it is not printed into server logs. Tokens must have at least 24 characters.
 
 Agent login state and browser profiles belong to home. Session definitions and notes belong to state. Live processes, open links, and temporary forwards do not survive container replacement. Remote Zellij sessions may remain on the target; reconnect attaches to them if present.
 
@@ -82,7 +83,7 @@ The command prints an authorization URL. `auth-relay` registers its `state` with
 
 ## Network behavior
 
-Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.
+Only the HTTP gateway is exposed (plus its token port, if `DEVBOX_TOKEN_PORT` is set). Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.
 
 Browser requests and remote forwarding use argument lists and quoted SSH commands. Environment targets come from operator-mounted configuration; the API does not accept arbitrary backend addresses. HTTP requests reject cross-origin mutations, and each viewer must claim a link before acknowledging it.
 
@@ -91,6 +92,14 @@ Behind a reverse proxy, forward the public `Host` header unchanged. The cross-or
 In `proxy` authentication mode, protect the whole gateway, including `/s/`, `/browser/`, and `/api/`, with the upstream authentication layer. For local trials, use the default token mode and port-forwarding.
 
 `cloudflare-access` mode removes the token form and verifies the Access JWT on every HTTP request and WebSocket upgrade, including `/s/`, `/browser/`, and `/api/`. The JWT comes from the `Cf-Access-Jwt-Assertion` header, falling back to the `CF_Authorization` cookie. Devbox checks the RS256 signature against the team's keys at `https://<team domain>/cdn-cgi/access/certs`, plus `aud`, `iss=https://<team domain>`, `exp` and `nbf` with 30 seconds of leeway. Keys are cached by `kid`; an unknown `kid` triggers a refetch, at most once every 30 seconds, and devbox rejects every request while it has no keys. Unlike `proxy` mode, a request that bypasses Access, such as one sent straight to the ClusterIP from another pod, gets `401`. `/healthz` stays open for probes. Startup fails if the team domain or AUD is missing. The pod must be able to reach the team domain over HTTPS.
+
+## Token port
+
+`DEVBOX_TOKEN_PORT` (for example `7681`) opens a second TCP listener next to `DEVBOX_PORT`. It is meant for a private fallback route, such as a Tailscale operator Ingress on the tailnet, that still works when Cloudflare or Access is down. The main port keeps its `DEVBOX_AUTH_MODE`; the token port always uses token auth: the `devbox_session` cookie or an `Authorization: Bearer` header, with the `/login` form for browsers. An Access JWT is neither needed nor accepted there.
+
+Devbox picks the policy from the local port the connection was accepted on, never from `Host`, `X-Forwarded-*` or any other header, so a request to the main port can't reach token auth or `/login` in `cloudflare-access` mode. The cross-origin `Origin` check and the JSON content-type check apply on both ports. Startup creates the token file if needed and fails if the port is invalid or equals `DEVBOX_PORT`. When unset, only `DEVBOX_PORT` listens and nothing changes.
+
+Don't publish the token port through a public ingress, tunnel or `LoadBalancer`: the token is then the only thing between the internet and a shell. Route only a private network to it, and rotate the token by replacing the token file and restarting.
 
 ## Runtime profiles
 
