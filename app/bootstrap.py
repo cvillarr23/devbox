@@ -24,6 +24,19 @@ def _backup_once(path):
         backup.write_bytes(path.read_bytes())
 
 
+def managed_link(path):
+    """Return where a symlinked settings file (or its directory) points, else None.
+
+    Dotfiles installers link agent settings into their checkout; writing through the
+    link would put devbox's entries in the user's repo.
+    """
+    path = Path(path)
+    for candidate in (path, path.parent):
+        if candidate.is_symlink():
+            return candidate.resolve()
+    return None
+
+
 def ensure_remote_control(path, enabled):
     """Set remoteControlAtStartup in user settings unless the user already chose a value.
 
@@ -31,6 +44,8 @@ def ensure_remote_control(path, enabled):
     and they would override the user's own choice.
     """
     path = Path(path)
+    if managed_link(path):
+        return
     content = json.loads(path.read_text()) if path.exists() else {}
     if 'remoteControlAtStartup' in content:
         return
@@ -40,8 +55,14 @@ def ensure_remote_control(path, enabled):
     path.write_text(json.dumps(content, indent=2) + '\n')
 
 
+def _managed_note(agent, path, target):
+    return f'{agent}: hooks not installed: {path.name} is managed by {target}; add the devbox hooks there'
+
+
 def install_hooks(root, home, managed=False, remote_control=None):
+    """Install hooks; return notes for user settings left alone because they are symlinked."""
     home = Path(home)
+    notes = []
     for agent in ('claude', 'codex'):
         command = shlex.join(['python3', str(root / 'devbox-status'), 'hook', '--agent', agent])
         if managed:
@@ -56,6 +77,10 @@ def install_hooks(root, home, managed=False, remote_control=None):
             path = Path('/etc/claude-code/managed-settings.json')
         else:
             path = home / f'.{agent}' / ('hooks.json' if agent == 'codex' else 'settings.json')
+            target = managed_link(path)
+            if target:
+                notes.append(_managed_note(agent, path, target))
+                continue
         content = json.loads(path.read_text()) if path.exists() else {}
         hooks = content.setdefault('hooks', {})
         events = EVENTS if agent == 'codex' else EVENTS[:-1] + ['Notification']
@@ -76,6 +101,7 @@ def install_hooks(root, home, managed=False, remote_control=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists() and not target.is_symlink():
                 target.symlink_to(root / 'skills' / skill)
+    return notes
 
 
 def archive():

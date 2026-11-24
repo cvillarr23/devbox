@@ -7,6 +7,8 @@ import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
+MANAGED_SETTINGS = {'codex': Path('/etc/codex/requirements.toml'),
+                    'claude': Path('/etc/claude-code/managed-settings.json')}
 
 
 def _read(path):
@@ -31,6 +33,43 @@ def confinement():
 
 
 MISSING_HINTS = {'gh': 'Rebuild the image; the GitHub CLI is installed from the pinned GH_VERSION release.'}
+
+
+def _hooks_present(path):
+    text = _read(path)
+    return bool(text) and 'devbox-status' in text
+
+
+def _agent_settings(agent, home):
+    """Whether devbox hooks (and, for claude, remote control) are active for one agent.
+
+    A symlinked user file is reported, not followed for writes: bootstrap leaves it to
+    the dotfiles that manage it.
+    """
+    from bootstrap import managed_link
+    user = home / f'.{agent}' / ('hooks.json' if agent == 'codex' else 'settings.json')
+    managed = MANAGED_SETTINGS[agent]
+    target = managed_link(user)
+    hooks = _hooks_present(user) or _hooks_present(managed)
+    entry = {'path': str(user), 'state': 'managed-link' if target else 'ok' if user.exists() else 'missing',
+             'hooks': hooks}
+    if target:
+        entry['link_target'] = str(target)
+    if not hooks:
+        entry['hint'] = (f'hooks not installed: {user.name} is managed by {target}; add the devbox hooks there'
+                         if target else 'hooks not installed: run devbox env bootstrap')
+    if agent == 'claude':
+        try:
+            value = json.loads(_read(user) or '{}').get('remoteControlAtStartup')
+        except ValueError:
+            value = None
+        entry['remote_control'] = value if isinstance(value, bool) else None
+    return entry
+
+
+def agent_settings(home=None):
+    home = Path(home) if home else Path.home()
+    return {agent: _agent_settings(agent, home) for agent in ('claude', 'codex')}
 
 
 def report():
@@ -65,7 +104,7 @@ def report():
         except (OSError, subprocess.TimeoutExpired):
             sandbox['error'] = 'Sandbox probe failed or timed out'
     return {'platform': {'machine': platform.machine()}, 'confinement': confinement(),
-            'sandbox': sandbox, 'tools': tools, 'hook_permissions': {
+            'sandbox': sandbox, 'tools': tools, 'agent_settings': agent_settings(), 'hook_permissions': {
         'helper_readable': os.access(ROOT / 'devbox-status', os.R_OK),
         'codex_managed_readable': os.access('/etc/codex/requirements.toml', os.R_OK),
         'codex_user_readable': os.access(Path.home() / '.codex/hooks.json', os.R_OK),

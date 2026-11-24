@@ -118,6 +118,29 @@ The shell setup keeps the image's Claude launcher working and uses the local
 `devbox` CLI instead of a dotfiles shortcut to a separate host. Agent settings,
 hooks, account credentials, and plugin configuration are not replaced.
 
+### Agent hooks when settings are dotfiles-managed
+
+If your dotfiles link `~/.claude/settings.json` or `~/.codex/hooks.json`,
+devbox never writes through the link (bootstrap, `devbox-setup-home` and
+startup all skip it). Add the hook entries to your dotfiles instead. For each
+event in the agent's `hooks` object, add a command group:
+
+```json
+{"hooks": {"SessionStart": [{"hooks": [{"type": "command", "timeout": 5,
+  "command": "python3 ~/.local/share/devbox/devbox-status hook --agent claude"}]}]}}
+```
+
+Use `--agent codex` in `hooks.json`. Cover the events devbox uses: SessionStart,
+UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Stop and
+SessionEnd (timeout 3), plus Notification for Claude (matcher
+`permission_prompt|elicitation_dialog`) and Interrupt for Codex (timeout 3).
+The `devbox-status hook` command does nothing outside devbox, so the entries are safe on
+machines without it. The helper path on a bootstrapped host is
+`python3 ~/.local/share/devbox/devbox-status`; on the image, `/opt/devbox/app/devbox-status`
+(already covered there by managed settings). To enable Claude remote control
+add `"remoteControlAtStartup": true` yourself. `devbox doctor` shows per target
+whether hooks and remote control are active.
+
 ## Environments
 
 Edit `config/environments.yaml` for Docker or `deploy/kubernetes/environments.yaml` for Kubernetes:
