@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import time
 
+from bootstrap import ensure_remote_control, remote_control_enabled
+
 MARKER = '# Managed by devbox home setup\n'
 
 
@@ -65,6 +67,7 @@ fi
 export SHELL=/bin/zsh
 export PATH="/opt/devbox/bin:/opt/venv/bin:$PATH"
 ''', replace=bool(dotfiles))
+    ensure_remote_control(home / '.claude/settings.json', remote_control_enabled())
     return repo
 
 

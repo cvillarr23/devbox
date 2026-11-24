@@ -30,5 +30,5 @@ p.write_text("#!/bin/sh\nexec "+shlex.quote(str(root/"bin/devbox-open"))+" \"$@\
 p.chmod(0o755)
 sys.path.insert(0,str(root))
 from bootstrap import install_hooks
-install_hooks(root,pathlib.Path.home())
+install_hooks(root,pathlib.Path.home(),remote_control=(sys.argv[1:2]!=["0"]))
 print("Installed helper and user hooks. Review Codex hooks with /hooks before relying on status.")

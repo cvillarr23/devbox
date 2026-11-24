@@ -52,3 +52,21 @@ def test_roo_preserves_existing_registrations(tmp_path):
     assert len(run.call_args_list) == 3
     assert run.call_args_list[0].args[0][:2] == ['uv', 'sync']
     assert all('add' not in call.args[0] for call in run.call_args_list)
+
+
+def test_setup_enables_claude_remote_control_unless_user_chose(tmp_path, monkeypatch):
+    import json
+    monkeypatch.delenv('DEVBOX_CLAUDE_REMOTE_CONTROL', raising=False)
+    setup(tmp_path)
+    settings = tmp_path / '.claude/settings.json'
+    assert json.loads(settings.read_text()) == {'remoteControlAtStartup': True}
+    settings.write_text('{"remoteControlAtStartup": false}')
+    setup(tmp_path)
+    assert json.loads(settings.read_text()) == {'remoteControlAtStartup': False}
+
+
+def test_setup_respects_disable_env(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv('DEVBOX_CLAUDE_REMOTE_CONTROL', '0')
+    setup(tmp_path)
+    assert json.loads((tmp_path / '.claude/settings.json').read_text())['remoteControlAtStartup'] is False
