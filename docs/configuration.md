@@ -64,6 +64,22 @@ Detection tries these in order: the pane a Claude background job is attached fro
 
 `devbox spawn [--name N] [--environment E] [--cwd DIR | --worktree BRANCH] [--agent claude|codex] [--model M] [--permission-mode plan|auto] [--prompt TEXT|-]` creates a session, optionally a git worktree beside the current repository, starts the agent with the prompt, and prints the child's name and URL. The child's `meta.json` records `parent: <session>[:<pane>]` from the detected session (never from an argument), and the dashboard API returns it as `parent`. The prompt gets one line naming the parent and how to message it. It works for local and managed environments; a worktree needs the child in the caller's own environment. The `devbox-spawn` skill covers when to spawn and how to brief a child.
 
+## Loopback OIDC logins (`devbox auth-relay`)
+
+CLIs such as `bao login -method=oidc` wait for the browser's redirect on `localhost:8250` inside the session, which a Mac or phone browser can't reach. With `DEVBOX_PUBLIC_URL` set, devbox serves the callback itself at `GET <DEVBOX_PUBLIC_URL>/oidc/callback`, behind the same auth as the rest of the app, and replays it to the session's loopback port:
+
+```bash
+devbox auth-relay --port 8250 -- bao login -method=oidc \
+  callbackmethod=https callbackhost=devbox-next.roo-net.cc callbackport=443 skip_browser=true
+```
+
+The command prints an authorization URL. `auth-relay` registers its `state` with devbox for 5 minutes, then opens the URL in the viewer's browser (`devbox-open --target local`) and waits for the command to exit. When the browser lands on the callback, devbox looks up `state`, makes one `GET /oidc/callback?...` to `127.0.0.1:<registered port>` in that session's environment (through the forward for SSH/Kubernetes targets) and shows "Signed in, you can close this tab".
+
+- `bao` always builds the redirect URI as `<callbackmethod>://<callbackhost>:<callbackport>/oidc/callback`, so the OpenBao OIDC role and the Google OAuth client must allow `https://<public host>:443/oidc/callback`. The path can't be changed.
+- Registration is refused unless the URL's `redirect_uri` is this devbox's callback, and for ports below 1024 or ports devbox itself uses. Unknown, expired and already-used `state` values get a 4xx and nothing is replayed.
+- With no `DEVBOX_PUBLIC_URL`, `auth-relay` reports why it can't relay and the command keeps running, so the callback URL can still be pasted back by hand.
+- `gh auth login --web` needs none of this: it uses the device-code flow.
+
 ## Network behavior
 
 Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.

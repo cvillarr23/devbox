@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 import aiohttp
 from aiohttp import web
 import access_auth
+import auth_relay
 import bootstrap
 import devbox_store as store
 import environments
@@ -42,7 +43,7 @@ async def boundary(request, handler):
     try:
         response = await handler(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['Referrer-Policy'] = 'same-origin'
+        response.headers.setdefault('Referrer-Policy', 'same-origin')
         response.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return response
     except store.Conflict as exc:
@@ -272,9 +273,41 @@ async def session(request):
         else:
             result = rt.browser.ack(name, data['id'], data['viewer'], data['status'])
         return web.json_response(result)
-    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn', 'msg-send', 'msg-who') and method == 'POST':
+    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn', 'msg-send', 'msg-who', 'auth-register') and method == 'POST':
         return web.json_response(await rt.operation(name, 'notes' if action == 'notes-command' else action, data))
     raise web.HTTPNotFound()
+
+
+def _relay_page(status, message):
+    """Static text only: callback query values are never reflected."""
+    return web.Response(status=status, content_type='text/html', headers={
+        'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer'}, text=(
+        '<!doctype html><meta name="viewport" content="width=device-width"><title>Devbox</title>'
+        f'<h1>Devbox</h1><p>{message}</p>'))
+
+
+async def auth_callback(request):
+    """Replay a browser's OIDC redirect to the loopback port its session registered."""
+    rt = request.app['runtime']
+    try:
+        name, port = rt.auth_relay.claim(request.query.get('state', ''))
+    except auth_relay.Unknown:
+        return _relay_page(404, 'No pending login matches this request. Start the login again from the session.')
+    except auth_relay.Expired:
+        return _relay_page(410, 'This login expired. Start it again from the session.')
+    if name not in rt.sessions or rt.sessions[name]['connection'] != 'connected':
+        return _relay_page(503, 'The session is not connected. Reconnect it and start the login again.')
+    url = f'http://127.0.0.1:{await rt.loopback_port(name, port)}{auth_relay.CALLBACK_PATH}'
+    if request.query_string:
+        url += '?' + request.query_string
+    try:
+        async with request.app['client'].get(url, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=10)) as upstream:
+            ok = 200 <= upstream.status < 300
+    except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+        ok = False
+    if ok:
+        return _relay_page(200, 'Signed in. You can close this tab.')
+    return _relay_page(502, 'The session did not accept the login. Start it again from the session.')
 
 
 async def spawn_top_level(request):
@@ -351,6 +384,7 @@ def create_app(runtime=None):
     app.router.add_get('/view/{name}', view)
     app.router.add_get('/mobile/{name}', view)
     app.router.add_get('/static/{path:.*}', static)
+    app.router.add_get(auth_relay.CALLBACK_PATH, auth_callback)
     app.router.add_route('*', '/s/{slot:\\d+}/{path:.*}', proxy)
     app.router.add_route('*', '/browser/{path:.*}', proxy)
     app.router.add_get('/api/widgets', lambda _: web.json_response(sorted(p.name for p in (WEB / 'widgets').glob('*.js'))))

@@ -4,7 +4,9 @@ import argparse
 import http.client
 import json
 import os
+import re
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,6 +54,31 @@ def current_session(explicit=None):
         raise ValueError(str(exc)) from None
 
 
+def doctor_session(explicit):
+    """Detection is optional here: doctor is what you run when detection may be broken."""
+    try:
+        return current_session(explicit)['session']
+    except ValueError:
+        if explicit:
+            raise
+        return None
+
+
+def run_doctor(args):
+    """Remote targets go through the relay when a session is known, else report the target itself.
+
+    The relay only serves requests from a session the server knows, so with no
+    session the target's own diagnostics are the most it can give.
+    """
+    if os.environ.get('DEVBOX_REMOTE') != '1':
+        return request('/api/doctor')
+    session = doctor_session(args.session)
+    if session:
+        return invoke(session, 'doctor', {})
+    import diagnostics
+    return {**diagnostics.report(), 'session': None}
+
+
 def with_view_url(result):
     import devbox_store
     view_url = devbox_store.public_view_url(result['session'])
@@ -84,6 +111,50 @@ def run_spawn(args):
     else:
         print(result['name'])
         print(result['url'])
+
+
+AUTH_URL_RE = re.compile(r'https?://\S+')
+
+
+def auth_relay_parser():
+    parser = argparse.ArgumentParser(prog='devbox auth-relay', usage='devbox auth-relay [--port N] [--session S] -- COMMAND...')
+    parser.add_argument('--port', type=int, default=8250, help="loopback port the command's callback listener uses")
+    parser.add_argument('--session', help='override automatic detection')
+    parser.add_argument('command', nargs=argparse.REMAINDER)
+    return parser
+
+
+def _auth_url(line):
+    """The authorization URL on a line of the command's output, or None."""
+    match = AUTH_URL_RE.search(line)
+    return match.group(0) if match and 'state=' in match.group(0) else None
+
+
+def _relay_login(session, port, url):
+    """Register the pending login, then open its URL in the viewer's browser."""
+    try:
+        invoke(session, 'auth-register', {'port': port, 'url': url})
+    except (ValueError, RuntimeError) as exc:
+        print(f'devbox: cannot relay this login: {exc}', file=sys.stderr, flush=True)
+        return
+    invoke(session, 'open', {'url': url, 'target': 'local'})
+
+
+def run_auth_relay(args):
+    """Run a loopback-callback login with its callback relayed through devbox's public URL."""
+    command = args.command[1:] if args.command[:1] == ['--'] else args.command
+    if not command:
+        raise SystemExit('devbox auth-relay: give the login command after --')
+    session = current_session(args.session)['session']
+    relayed = False
+    with subprocess.Popen(command, stdout=subprocess.PIPE, text=True) as proc:
+        for line in proc.stdout:
+            print(line, end='', flush=True)
+            url = None if relayed else _auth_url(line)
+            if url:
+                relayed = True
+                _relay_login(session, args.port, url)
+    return proc.returncode
 
 
 MSG_USAGE = """devbox-msg send [TO] [--to TO] [--kind KIND] TEXT|-
@@ -194,6 +265,8 @@ def main():
     if command == 'devbox-msg' or (command == 'devbox' and sys.argv[2:3] == ['msg']):
         return msg_main(sys.argv[2:] if command == 'devbox-msg' else sys.argv[3:],
                         'devbox-msg' if command == 'devbox-msg' else 'devbox msg')
+    if command == 'devbox' and sys.argv[2:3] == ['auth-relay']:
+        sys.exit(run_auth_relay(auth_relay_parser().parse_args(sys.argv[3:])))
     parser = argparse.ArgumentParser(prog=command)
     if command == 'devbox-open':
         parser.add_argument('--target', choices=('local', 'remote'), default=os.environ.get('DEVBOX_OPEN_TARGET', 'remote'))
@@ -230,7 +303,7 @@ def main():
             return
     else:
         sub = parser.add_subparsers(dest='command', required=True)
-        sub.add_parser('doctor')
+        sub.add_parser('doctor').add_argument('--session', help='override automatic detection')
         env = sub.add_parser('env').add_subparsers(dest='action', required=True)
         env.add_parser('list')
         env.add_parser('bootstrap').add_argument('name')
@@ -252,7 +325,7 @@ def main():
         if args.command == 'spawn':
             return run_spawn(args)
         if args.command == 'doctor':
-            result = invoke(current_session()['session'], 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
+            result = run_doctor(args)
         elif args.command == 'forward':
             result = invoke(current_session(args.session)['session'], 'forward', {'port': args.port})
         elif args.action == 'list':
