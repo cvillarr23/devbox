@@ -207,5 +207,19 @@ def test_install_skills_replaces_only_owned_links(tmp_path):
     assert (codex / 'devbox-browser').resolve() == (skills / 'devbox-browser').resolve()
     assert (codex / 'devbox-msg').is_dir() and not (codex / 'devbox-msg').is_symlink()
     assert (codex / 'devbox-spawn').resolve() == foreign.resolve()
-    assert not (claude / 'devbox-browser').is_symlink()
-    assert (claude / 'devbox-msg').is_symlink()
+    # plugin not installed yet: the owned Claude link is re-pointed, not removed
+    assert (claude / 'devbox-browser').resolve() == (skills / 'devbox-browser').resolve()
+    assert (claude / 'devbox-msg').resolve() == foreign.resolve()
+
+
+def test_owned_claude_links_removed_once_plugin_installed(tmp_path):
+    from bootstrap import install_skills
+    base = make_bundle(tmp_path)
+    home = tmp_path / 'home'
+    claude = home / '.claude/skills'
+    claude.mkdir(parents=True)
+    (claude / 'devbox-msg').symlink_to('/opt/devbox/app/skills/devbox-msg')
+    (home / '.claude/plugins').mkdir()
+    (home / '.claude/plugins/installed_plugins.json').write_text(json.dumps({'version': 2, 'plugins': {'devbox@devbox': [{}]}}))
+    install_skills(base, home)
+    assert not (claude / 'devbox-msg').is_symlink()

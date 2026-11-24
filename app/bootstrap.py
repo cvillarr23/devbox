@@ -145,9 +145,19 @@ def _owned_link(target, base):
     return in_bundle and Path(dest).name in SKILLS
 
 
-def install_skills(root, home):
-    """Link skills for Codex and drop the old Claude links the plugin replaces.
+def plugin_installed(home):
+    try:
+        data = json.loads((Path(home) / '.claude/plugins/installed_plugins.json').read_text())
+        return bool(data.get('plugins', {}).get(PLUGIN_ID))
+    except (OSError, ValueError, AttributeError):
+        return False
 
+
+def install_skills(root, home):
+    """Link skills for Codex and migrate the old Claude links to the plugin.
+
+    Owned Claude links are re-pointed at the bundle until Claude Code has actually
+    installed the plugin, then removed, so no session is left without skills.
     Only symlinks into a devbox bundle are replaced or removed; user skills are kept.
     """
     home = Path(home)
@@ -157,6 +167,8 @@ def install_skills(root, home):
         legacy = home / '.claude/skills' / skill
         if _owned_link(legacy, base):
             legacy.unlink()
+            if not plugin_installed(home):
+                legacy.symlink_to(skills / skill)
         target = home / '.codex/skills' / skill
         if _owned_link(target, base):
             target.unlink()
