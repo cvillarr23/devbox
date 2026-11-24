@@ -90,22 +90,29 @@ custom shell files are preserved, and existing panes keep their running shell.
 Supply personal dotfiles at runtime, for example at `~/dev/dotfiles`, then run:
 
 ```sh
-devbox-setup-home --dotfiles "$HOME/dev/dotfiles" --roo-coder
+devbox-setup-home --dotfiles "$HOME/dev/dotfiles"
 ```
 
-This sources `zsh/zshrc` and `zsh/zshenv`, backs up existing shell files, and
-installs the initialized `claude/mcp-servers/roo-coder` submodule with uv and
-Python 3.12. Roo Coder is registered with both Claude and Codex; existing MCP
-registrations are preserved. Restart your shell with `exec zsh` or create a
-new session. Set `OLLAMA_BASE_URL`, `OLLAMA_HOST_HEADER`, and `QDRANT_URL` in
-your runtime environment as needed for Roo Coder's services.
+Devbox knows nothing about the checkout's layout. After seeding its own shell
+files it backs up any custom `~/.zshrc` and `~/.zshenv`, then runs the
+checkout's documented installer, `install.sh`, as the session user from inside
+the checkout. Use `--dotfiles-installer PATH` (relative to the checkout) to run
+a different script. What the installer sets up (shell files, Roo Coder, agent
+plugins, skills, MCP registrations) and how it preserves existing registrations
+is the dotfiles repo's business. Choose components by forwarding the
+installer's own arguments with a repeatable `--dotfiles-arg`, for example
+`--dotfiles-arg=--no-roo-coder`. Omit `--dotfiles` to run no installer at all;
+the image's shell seeding works on its own. Restart your shell with `exec zsh`
+or create a new session afterwards.
 
-You can set `DEVBOX_DOTFILES_DIR` to select another mounted checkout. Startup
-configures its shell files but never downloads private repos or installs Roo
-Coder dependencies automatically. Bootstrap Roo Coder explicitly with the
-command above. No private dotfiles, Git credentials, secrets, or Roo Coder
-source are included in the public image. Copy an initialized checkout without
-its `.git` directories, or mount it using your deployment's configuration.
+`--roo-coder` is deprecated, prints a warning and does nothing. It will be
+removed in the next release; the dotfiles installer installs Roo Coder.
+
+The installer runs only when you invoke `devbox-setup-home --dotfiles`, never
+automatically at startup, and devbox never downloads private repos. No private
+dotfiles, Git credentials, secrets, or Roo Coder source are included in the
+public image. Copy a checkout without its `.git` directories, or mount it using
+your deployment's configuration.
 
 The shell setup keeps the image's Claude launcher working and uses the local
 `devbox` CLI instead of a dotfiles shortcut to a separate host. Agent settings,
