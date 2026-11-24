@@ -27,10 +27,11 @@ COOKIE = 'devbox_session'
 @web.middleware
 async def boundary(request, handler):
     # The Unix socket is accessible only to the devbox Unix user. HTTP always
-    # requires a token unless explicitly placed behind a trusted auth proxy.
-    unix = request.transport.get_extra_info('sockname') == request.app['socket']
-    if not unix and request.path not in _unauthenticated_paths(request.app):
-        denied = await _denied(request)
+    # requires a token unless explicitly placed behind a trusted auth proxy; the
+    # policy comes from the listener the connection arrived on (see _policy).
+    policy = _policy(request)
+    if policy != 'unix' and request.path not in _unauthenticated_paths(policy):
+        denied = await _denied(request, policy)
         if denied:
             return denied
         origin = request.headers.get('Origin')
@@ -54,18 +55,31 @@ async def boundary(request, handler):
         return web.json_response({'error': str(exc) or 'Operation timed out'}, status=503)
 
 
-def _unauthenticated_paths(app):
+def _policy(request):
+    """The auth policy for this connection: 'unix', 'token', 'proxy' or 'cloudflare-access'.
+
+    Chosen only by the local socket the connection was accepted on, never by a
+    header: DEVBOX_TOKEN_PORT always uses token auth, the main port its mode."""
+    sockname = request.transport.get_extra_info('sockname')
+    if sockname == request.app['socket']:
+        return 'unix'
+    if request.app['token_port'] is not None and isinstance(sockname, tuple) and sockname[1] == request.app['token_port']:
+        return 'token'
+    return request.app['auth']
+
+
+def _unauthenticated_paths(policy):
     """Access mode has no token form, so `/login` must not be reachable around the JWT check."""
-    return ('/healthz',) if app.get('access') else ('/healthz', '/login')
+    return ('/healthz',) if policy == 'cloudflare-access' else ('/healthz', '/login')
 
 
-async def _denied(request):
+async def _denied(request, policy):
     """The response that rejects an unauthenticated request, or None if it may proceed."""
-    if request.app.get('access'):
+    if policy == 'cloudflare-access':
         if await request.app['access'].verify(request, request.app['client']):
             return None
         return _access_denied(request)
-    token = request.app['token']
+    token = request.app['token'] if policy == 'token' else ''
     cookie = request.cookies.get(COOKIE, '')
     bearer = request.headers.get('Authorization', '').removeprefix('Bearer ')
     if token and not (secrets.compare_digest(cookie, token) or secrets.compare_digest(bearer, token)):
@@ -91,10 +105,12 @@ async def login(request):
     if request.content_type != 'application/json':
         raise web.HTTPUnsupportedMediaType()
     data = await request.json()
-    if not isinstance(data.get('token'), str) or not secrets.compare_digest(data['token'], request.app['token']):
+    # The token is checked only where token auth applies; elsewhere it stays '' as before the token port.
+    token = request.app['token'] if 'token' in (_policy(request), request.app['auth']) else ''
+    if not isinstance(data.get('token'), str) or not secrets.compare_digest(data['token'], token):
         raise web.HTTPUnauthorized()
     response = web.json_response({'ok': True})
-    response.set_cookie(COOKIE, request.app['token'], httponly=True, samesite='Strict',
+    response.set_cookie(COOKIE, token, httponly=True, samesite='Strict',
                         secure=_cookie_secure(request))
     return response
 
@@ -364,9 +380,11 @@ def create_app(runtime=None):
     auth = os.environ.get('DEVBOX_AUTH_MODE', 'token')
     if auth not in ('token', 'proxy', 'cloudflare-access'):
         raise ValueError('DEVBOX_AUTH_MODE must be token, proxy or cloudflare-access')
+    app['auth'] = auth
+    app['token_port'] = _token_port()
     if auth == 'cloudflare-access':
         app['access'] = access_auth.CloudflareAccess.from_env()
-    if auth == 'token':
+    if auth == 'token' or app['token_port'] is not None:
         if not token_file.exists():
             token_file.parent.mkdir(parents=True, exist_ok=True)
             fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -399,6 +417,18 @@ def create_app(runtime=None):
     return app
 
 
+def _token_port():
+    """DEVBOX_TOKEN_PORT as an int, or None when unset or empty."""
+    value = os.environ.get('DEVBOX_TOKEN_PORT', '')
+    if not value:
+        return None
+    if not value.isdigit() or not 0 < int(value) < 65536:
+        raise ValueError('DEVBOX_TOKEN_PORT must be a TCP port number')
+    if int(value) == int(os.environ.get('DEVBOX_PORT', '7680')):
+        raise ValueError('DEVBOX_TOKEN_PORT must differ from DEVBOX_PORT')
+    return int(value)
+
+
 async def main():
     app = create_app()
     runner = web.AppRunner(app, access_log=None)
@@ -409,7 +439,11 @@ async def main():
     await unix.start()
     socket_path.chmod(0o600)
     await web.TCPSite(runner, '0.0.0.0', int(os.environ.get('DEVBOX_PORT', '7680'))).start()
+    if app['token_port'] is not None:
+        await web.TCPSite(runner, '0.0.0.0', app['token_port']).start()
     print('Devbox ready. Access token file: ' + os.environ.get('DEVBOX_TOKEN_FILE', str(Path(store.state_dir()) / 'access-token')), flush=True)
+    if app['token_port'] is not None:
+        print(f"Token-auth listener on port {app['token_port']}; keep it off public ingress.", flush=True)
     import signal
     stop = asyncio.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
