@@ -45,33 +45,57 @@ def ensure_remote_control(path, enabled):
 CODEX_MCP_TABLE = re.compile(r'^\s*\[mcp_servers\.("devbox"|devbox)(\.[^\]]*)?\]', re.M)
 
 
+def _write_atomic(path, text):
+    """Replace path in one step so a reader never sees a half-written file, keeping its mode."""
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    tmp = path.with_name(f'.{path.name}.devbox-tmp')
+    try:
+        tmp.write_text(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _symlinked(path, hint):
+    """A symlinked config is managed elsewhere (dotfiles), so never write through it."""
+    if not path.is_symlink():
+        return False
+    print(f'devbox: not registering MCP server, {path} is a symlink; add this there:\n{hint}', file=sys.stderr)
+    return True
+
+
 def install_mcp(root, home):
     """Register the devbox MCP server for Claude and Codex in the user's own config.
 
     Same rule as the hooks: other entries are never touched, and an existing
-    `devbox` entry is the user's to keep. Managed config is not used because
-    Claude treats managed-mcp.json as the only MCP source.
+    `devbox` entry is the user's to keep. Symlinked configs are skipped.
+    Managed config is not used because Claude treats managed-mcp.json as the
+    only MCP source.
     """
     home = Path(home)
     home.mkdir(parents=True, exist_ok=True)
     script = str(Path(root) / 'mcp_server.py')
+    entry = {'type': 'stdio', 'command': 'python3', 'args': [script], 'env': {}}
     claude = home / '.claude.json'
-    try:
-        content = json.loads(claude.read_text()) if claude.exists() else {}
-        servers = content.setdefault('mcpServers', {})
-        if 'devbox' not in servers:
-            servers['devbox'] = {'type': 'stdio', 'command': 'python3', 'args': [script], 'env': {}}
-            _backup_once(claude)
-            claude.write_text(json.dumps(content, indent=2) + '\n')
-    except (ValueError, AttributeError):
-        print(f'devbox: not registering MCP server, cannot parse {claude}', file=sys.stderr)
+    if not _symlinked(claude, f'"mcpServers": {{"devbox": {json.dumps(entry)}}}'):
+        try:
+            content = json.loads(claude.read_text()) if claude.exists() else {}
+            servers = content.setdefault('mcpServers', {})
+            if 'devbox' not in servers:
+                servers['devbox'] = entry
+                _backup_once(claude)
+                _write_atomic(claude, json.dumps(content, indent=2) + '\n')
+        except (ValueError, AttributeError):
+            print(f'devbox: not registering MCP server, cannot parse {claude}', file=sys.stderr)
     codex = home / '.codex/config.toml'
-    text = codex.read_text() if codex.exists() else ''
-    if not CODEX_MCP_TABLE.search(text):
-        codex.parent.mkdir(parents=True, exist_ok=True)
-        _backup_once(codex)
-        entry = f'[mcp_servers.devbox]\ncommand = "python3"\nargs = [{json.dumps(script)}]\n'
-        codex.write_text(text + ('\n' if text and not text.endswith('\n\n') else '') + entry)
+    table = f'[mcp_servers.devbox]\ncommand = "python3"\nargs = [{json.dumps(script)}]\n'
+    if not _symlinked(codex, table):
+        text = codex.read_text() if codex.exists() else ''
+        if not CODEX_MCP_TABLE.search(text):
+            codex.parent.mkdir(parents=True, exist_ok=True)
+            _backup_once(codex)
+            _write_atomic(codex, text + ('\n' if text and not text.endswith('\n\n') else '') + table)
 
 
 def install_hooks(root, home, managed=False, remote_control=None):

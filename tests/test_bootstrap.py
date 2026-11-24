@@ -99,3 +99,31 @@ def test_user_install_hooks_registers_mcp(tmp_path):
     install_hooks(tmp_path / 'app', tmp_path)
     assert 'devbox' in json.loads((tmp_path / '.claude.json').read_text())['mcpServers']
     assert '[mcp_servers.devbox]' in (tmp_path / '.codex/config.toml').read_text()
+
+
+@pytest.mark.parametrize('name', ['.claude.json', '.codex/config.toml'])
+def test_install_mcp_skips_symlinked_config(tmp_path, capsys, name):
+    from bootstrap import install_mcp
+    target = tmp_path / 'dotfiles/target'
+    target.parent.mkdir()
+    target.write_text('{}' if name.endswith('json') else '')
+    link = tmp_path / 'home' / name
+    link.parent.mkdir(parents=True)
+    link.symlink_to(target)
+    install_mcp(tmp_path / 'app', tmp_path / 'home')
+    assert link.is_symlink() and target.read_text() == ('{}' if name.endswith('json') else '')
+    assert str(link) in capsys.readouterr().err
+    other = tmp_path / 'home' / ('.codex/config.toml' if name.endswith('json') else '.claude.json')
+    assert other.exists() and not other.is_symlink()
+
+
+def test_install_mcp_writes_atomically_and_keeps_mode(tmp_path):
+    from bootstrap import install_mcp
+    (tmp_path / '.claude.json').write_text('{"theme": "dark"}')
+    (tmp_path / '.claude.json').chmod(0o600)
+    install_mcp(tmp_path / 'app', tmp_path)
+    assert (tmp_path / '.claude.json').stat().st_mode & 0o777 == 0o600
+    assert sorted(p.name for p in tmp_path.iterdir() if 'tmp' in p.name) == []
+    fresh = tmp_path / 'fresh'
+    install_mcp(tmp_path / 'app', fresh)
+    assert (fresh / '.claude.json').stat().st_mode & 0o777 == 0o600
