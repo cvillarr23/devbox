@@ -25,7 +25,7 @@
 
 ## Persistent directories
 
-Docker uses a home volume at `/home/devbox` and a state volume at `/data`; projects are a bind mount at `/workspace`. Kubernetes uses one PVC for `/data/home`, `/data/state`, and `/workspace`. UID/GID 1000 must have write access.
+Docker uses a home volume at `/home/devbox` and a state volume at `/data`; projects are a bind mount at `/workspace`. Kubernetes uses the `devbox` PVC for `/data/home` and `/data/state`, and the `devbox-workspace` PVC for `/workspace`. UID/GID 1000 must have write access.
 
 The server generates a random access token only if the configured token file does not exist. Read it using `docker compose exec` or `kubectl exec`; it is not printed into server logs. Tokens must have at least 24 characters.
 

@@ -176,6 +176,29 @@ def zellij_config():
     return str(bundled if bundled.is_file() else ROOT.parent / "config/zellij.kdl")
 
 
+def live_sessions(env=None):
+    """Names of running Zellij sessions; EXITED (resurrectable) ones are left out."""
+    listed = subprocess.run(["zellij", "list-sessions", "-n"], env=env,
+                            capture_output=True, text=True).stdout.splitlines()
+    return [line.split()[0] for line in listed if line.strip() and "(EXITED" not in line]
+
+
+def terminal_command(name, layout_file):
+    """Attach to the session if it is running, otherwise start it fresh from the layout.
+
+    Zellij caches each session's tabs, cwds and running commands under ~/.cache/zellij,
+    which lives on the persistent volume. After a container or pod replacement the
+    session is listed as EXITED, and attaching would resurrect it with the old commands
+    one keypress away from running again. Deleting that copy keeps Reconnect a new
+    terminal that never replays shell commands.
+    """
+    command = ["zellij", "--config", zellij_config()]
+    if name in live_sessions():
+        return command + ["attach", name]
+    subprocess.run(["zellij", "delete-session", name], capture_output=True, text=True)
+    return command + ["--new-session-with-layout", str(layout_file), "--session", name]
+
+
 def start_agent(name, cwd, spec, prompt):
     """Create the detached Zellij session with the agent already running in it."""
     folder = Path(store.session_dir(name))

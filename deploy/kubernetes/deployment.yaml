@@ -64,9 +64,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-            - name: data
+            - name: workspace
               mountPath: /workspace
-              subPath: workspace
             - name: config
               mountPath: /etc/devbox
               readOnly: true
@@ -76,6 +75,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: devbox
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: devbox-workspace
         - name: config
           configMap:
             name: devbox-environments

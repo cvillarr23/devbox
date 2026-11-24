@@ -82,9 +82,7 @@ def attach(name, cwd):
     os.environ.update(DEVBOX_SESSION=name, BROWSER=str(ROOT / 'bin/devbox-open'),
                       PATH=str(ROOT / 'bin') + ':' + os.environ['PATH'])
     # Metadata and hooks use the Zellij session name on either side of the relay.
-    existing = subprocess.run(['zellij', 'list-sessions', '-s', '-n'], capture_output=True, text=True).stdout.splitlines()
-    args = ['zellij', '--config', str(ROOT / 'zellij.kdl')]
-    args += ['attach', name] if name in existing else ['--new-session-with-layout', str(ROOT / 'layout.kdl'), '--session', name]
+    args = child_session.terminal_command(name, ROOT / 'layout.kdl')
     os.execvp(args[0], args)
 
 

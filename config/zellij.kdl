@@ -1,5 +1,7 @@
 simplified_ui true
 default_mode "locked"
+// Sessions are not cached on the persistent home, so a replaced container never resurrects old commands.
+session_serialization false
 
 keybinds clear-defaults=true {
     locked {
