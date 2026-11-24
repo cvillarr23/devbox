@@ -13,7 +13,34 @@ EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
           'PermissionRequest', 'Stop', 'SessionEnd', 'Interrupt']
 
 
-def install_hooks(root, home, managed=False):
+def remote_control_enabled(env=None):
+    value = (os.environ if env is None else env).get('DEVBOX_CLAUDE_REMOTE_CONTROL', '1')
+    return value.strip().lower() not in ('0', 'false', 'no', 'off')
+
+
+def _backup_once(path):
+    backup = path.with_suffix(path.suffix + '.pre-devbox')
+    if path.exists() and not backup.exists():
+        backup.write_bytes(path.read_bytes())
+
+
+def ensure_remote_control(path, enabled):
+    """Set remoteControlAtStartup in user settings unless the user already chose a value.
+
+    Managed settings cannot carry it: they are root-owned and fixed at image build,
+    and they would override the user's own choice.
+    """
+    path = Path(path)
+    content = json.loads(path.read_text()) if path.exists() else {}
+    if 'remoteControlAtStartup' in content:
+        return
+    content['remoteControlAtStartup'] = bool(enabled)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _backup_once(path)
+    path.write_text(json.dumps(content, indent=2) + '\n')
+
+
+def install_hooks(root, home, managed=False, remote_control=None):
     home = Path(home)
     for agent in ('claude', 'codex'):
         command = shlex.join(['python3', str(root / 'devbox-status'), 'hook', '--agent', agent])
@@ -39,9 +66,10 @@ def install_hooks(root, home, managed=False):
                 group['matcher'] = 'permission_prompt|elicitation_dialog'
             hooks[event] = groups + [group]
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists() and not path.with_suffix(path.suffix + '.pre-devbox').exists():
-            path.with_suffix(path.suffix + '.pre-devbox').write_bytes(path.read_bytes())
+        _backup_once(path)
         path.write_text(json.dumps(content, indent=2) + '\n')
+        if agent == 'claude' and not managed and remote_control is not None:
+            ensure_remote_control(path, remote_control)
     for agent in ('claude', 'codex'):
         for skill in ('devbox-notes', 'devbox-browser', 'devbox-spawn', 'devbox-msg'):
             target = home / f'.{agent}/skills/{skill}'
@@ -66,4 +94,4 @@ async def bootstrap(config):
     payload = archive()
     # Fixed program; data is transferred on stdin, never interpolated in shell commands.
     program = (ROOT / 'remote_install.py').read_text()
-    return (await run(transport(config, ['python3', '-c', program]), payload.encode(), timeout=60)).decode()
+    return (await run(transport(config, ['python3', '-c', program, '1' if remote_control_enabled() else '0']), payload.encode(), timeout=60)).decode()

@@ -18,6 +18,7 @@
 | `DEVBOX_SPAWN_LIMIT` | `5` | Most live child sessions one parent may `devbox spawn`; `0` disables the limit |
 | `DEVBOX_PUBLIC_URL` | unset (`devbox spawn` prints `http://localhost:$DEVBOX_PORT`) | Public origin, for example `https://devbox-next.roo-net.cc`. Sets `publicHost` in the dashboard config and adds an absolute `view_url` to each session in the API and to `devbox-session --json`; `devbox spawn` prints it too |
 | `DEVBOX_TRUST_PROXY` | unset | Set `1` to honor `X-Forwarded-Proto: https` for the session cookie's `Secure` flag. Off by default because any client can send the header |
+| `DEVBOX_CLAUDE_REMOTE_CONTROL` | `1` | `0`, `false`, `no` or `off` stops devbox from enabling Claude remote control at startup. Devbox sets `remoteControlAtStartup` in `~/.claude/settings.json` (local home at each start, remote targets at bootstrap) only when the key is absent, so a value you set is kept, and a pre-existing file is backed up to `settings.json.pre-devbox` |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
 | `DEVBOX_CODEX_SOCKET` | autodetected | Optional existing local Codex daemon Unix socket |
 

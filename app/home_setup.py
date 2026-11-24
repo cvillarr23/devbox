@@ -7,6 +7,8 @@ import subprocess
 import sys
 import time
 
+from bootstrap import ensure_remote_control, remote_control_enabled
+
 MARKER = '# Managed by devbox home setup\n'
 
 ZSHRC = '''export ZSH="$HOME/.oh-my-zsh"
@@ -42,6 +44,7 @@ def setup(home, omz=Path('/opt/oh-my-zsh')):
         omz_link.symlink_to(omz)
     write_config(home / '.zshrc', ZSHRC)
     write_config(home / '.zshenv', ZSHENV)
+    ensure_remote_control(home / '.claude/settings.json', remote_control_enabled())
 
 
 def _resolve_installer(checkout, installer):
