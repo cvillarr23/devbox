@@ -52,11 +52,15 @@ def install_hooks(root, home, managed=False, remote_control=None):
                     text += f'\n[[hooks.{event}]]\n[[hooks.{event}.hooks]]\ntype = "command"\ncommand = {json.dumps(command)}\ntimeout = {3 if event in ("SessionEnd", "Interrupt") else 5}\n'
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
+                # Agent versions are pinned in the image; self-update cannot write /usr/local.
+                (path.parent / 'config.toml').write_text('check_for_update_on_startup = false\n')
                 continue
             path = Path('/etc/claude-code/managed-settings.json')
         else:
             path = home / f'.{agent}' / ('hooks.json' if agent == 'codex' else 'settings.json')
         content = json.loads(path.read_text()) if path.exists() else {}
+        if managed:
+            content.setdefault('env', {})['DISABLE_AUTOUPDATER'] = '1'
         hooks = content.setdefault('hooks', {})
         events = EVENTS if agent == 'codex' else EVENTS[:-1] + ['Notification']
         for event in events:
