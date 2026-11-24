@@ -164,7 +164,7 @@ def test_remote_rpc_spawn_and_worktree(monkeypatch, repo):
 def test_bootstrap_ships_spawn_module():
     import base64, io, tarfile, bootstrap
     names = tarfile.open(fileobj=io.BytesIO(base64.b64decode(bootstrap.archive())), mode='r:gz').getnames()
-    assert 'spawn.py' in names and 'skills/devbox-spawn/SKILL.md' in names
+    assert 'spawn.py' in names and 'plugins/devbox/skills/devbox-spawn/SKILL.md' in names
 
 
 def test_color_env_defaults_and_respects_operator():
