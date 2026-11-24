@@ -107,4 +107,16 @@ scheduling this workload. Docker Desktop on macOS has no AppArmor: use
 `unconfined` there, with the custom seccomp profile, which covers both amd64
 and arm64. `devbox doctor` reports the CPU architecture, the AppArmor label
 and seccomp mode the container actually runs with, whether actual sandbox
-execution succeeds, tool versions and hook permissions.
+execution succeeds, tool versions and hook permissions. For Codex and Claude
+Code it also shows the latest published npm version and flags a stale pin
+(`latest`/`stale`; omitted when offline).
+
+## Agent versions
+
+The image pins Codex and Claude Code (`CODEX_VERSION`, `CLAUDE_VERSION` in the
+Dockerfile) under the root-owned `/usr/local` npm prefix, and sessions run as
+UID 1000, so agent self-update cannot work. It is disabled instead:
+`DISABLE_AUTOUPDATER=1` in the image environment and in
+`/etc/claude-code/managed-settings.json`, and
+`check_for_update_on_startup = false` in `/etc/codex/config.toml`. To update an
+agent, bump its pin and cut a release; `devbox doctor` shows when a pin is stale.
