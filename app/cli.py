@@ -46,6 +46,14 @@ def invoke(session, operation, args):
     return request(f'/api/sessions/{session}/' + ('notes-command' if operation == 'notes' else operation), args)
 
 
+def open_url(session, url, target):
+    return invoke(session, 'open', {'url': url, 'target': target})
+
+
+def notes_command(session, action, content=''):
+    return invoke(session, 'notes', {'action': action, 'content': content})
+
+
 def current_session(explicit=None):
     from current_session import detect, SessionDetectionError
     try:
@@ -93,19 +101,21 @@ def spawn_request(args):
     return {k: v for k, v in fields.items() if v}
 
 
-def run_spawn(args):
+def spawn_session(data):
     """Spawn a child of the detected session; with no session, a top-level one."""
-    data = spawn_request(args)
     try:
         parent = current_session()
     except ValueError:
         parent = None
     if parent:
-        result = invoke(parent['session'], 'spawn', {**data, 'pane': parent['pane']})
-    elif os.environ.get('DEVBOX_REMOTE') == '1':
+        return invoke(parent['session'], 'spawn', {**data, 'pane': parent['pane']})
+    if os.environ.get('DEVBOX_REMOTE') == '1':
         raise ValueError('No devbox session; run inside one')
-    else:
-        result = request('/api/spawn', data)
+    return request('/api/spawn', data)
+
+
+def run_spawn(args):
+    result = spawn_session(spawn_request(args))
     if args.json:
         print(json.dumps(result, indent=2))
     else:
@@ -197,10 +207,15 @@ def _msg_text(args):
     return to, sys.stdin.read() if words == ['-'] else ' '.join(words)
 
 
-def _msg_send(args):
+def msg_send(to, kind, body):
+    """Send as the detected session; the sender is never caller-supplied."""
     session, pane = _msg_identity()
+    return invoke(session, 'msg-send', {'from_pane': pane, 'to': to, 'kind': kind, 'body': body})
+
+
+def _msg_send(args):
     to, text = _msg_text(args)
-    result = invoke(session, 'msg-send', {'from_pane': pane, 'to': to, 'kind': args.kind, 'body': text})
+    result = msg_send(to, args.kind, text)
     for item in result['delivered']:
         print(f"{item['to']}: " + (f"#{item['id']} " if item['id'] else '') + item['delivery'])
 
@@ -274,7 +289,7 @@ def main():
         parser.add_argument('url')
         args = parser.parse_args(sys.argv[2:])
         args.session = current_session(args.session)['session']
-        result = invoke(args.session, 'open', {'url': args.url, 'target': args.target})
+        result = open_url(args.session, args.url, args.target)
     elif command == 'devbox-session':
         parser.add_argument('--session', help='override automatic detection')
         parser.add_argument('--json', action='store_true', help='include pane and detection source')
@@ -297,7 +312,7 @@ def main():
             print(devbox_store.notes_path(args.session))
             return
         content = args.text if args.text not in (None, '-') else sys.stdin.read() if args.action in ('append', 'write') else ''
-        result = invoke(args.session, 'notes', {'action': args.action, 'content': content})
+        result = notes_command(args.session, args.action, content)
         if args.action == 'cat':
             print(result['content'], end='')
             return

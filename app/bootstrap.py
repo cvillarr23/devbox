@@ -3,7 +3,9 @@ import base64
 import io
 import json
 import os
+import re
 import shlex
+import sys
 import tarfile
 from pathlib import Path
 
@@ -38,6 +40,38 @@ def ensure_remote_control(path, enabled):
     path.parent.mkdir(parents=True, exist_ok=True)
     _backup_once(path)
     path.write_text(json.dumps(content, indent=2) + '\n')
+
+
+CODEX_MCP_TABLE = re.compile(r'^\s*\[mcp_servers\.("devbox"|devbox)(\.[^\]]*)?\]', re.M)
+
+
+def install_mcp(root, home):
+    """Register the devbox MCP server for Claude and Codex in the user's own config.
+
+    Same rule as the hooks: other entries are never touched, and an existing
+    `devbox` entry is the user's to keep. Managed config is not used because
+    Claude treats managed-mcp.json as the only MCP source.
+    """
+    home = Path(home)
+    home.mkdir(parents=True, exist_ok=True)
+    script = str(Path(root) / 'mcp_server.py')
+    claude = home / '.claude.json'
+    try:
+        content = json.loads(claude.read_text()) if claude.exists() else {}
+        servers = content.setdefault('mcpServers', {})
+        if 'devbox' not in servers:
+            servers['devbox'] = {'type': 'stdio', 'command': 'python3', 'args': [script], 'env': {}}
+            _backup_once(claude)
+            claude.write_text(json.dumps(content, indent=2) + '\n')
+    except (ValueError, AttributeError):
+        print(f'devbox: not registering MCP server, cannot parse {claude}', file=sys.stderr)
+    codex = home / '.codex/config.toml'
+    text = codex.read_text() if codex.exists() else ''
+    if not CODEX_MCP_TABLE.search(text):
+        codex.parent.mkdir(parents=True, exist_ok=True)
+        _backup_once(codex)
+        entry = f'[mcp_servers.devbox]\ncommand = "python3"\nargs = [{json.dumps(script)}]\n'
+        codex.write_text(text + ('\n' if text and not text.endswith('\n\n') else '') + entry)
 
 
 def install_hooks(root, home, managed=False, remote_control=None):
@@ -80,12 +114,14 @@ def install_hooks(root, home, managed=False, remote_control=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists() and not target.is_symlink():
                 target.symlink_to(root / 'skills' / skill)
+    if not managed:
+        install_mcp(root, home)
 
 
 def archive():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
-        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py', 'spawn.py', 'messages.py', 'pane_input.py'):
+        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py', 'spawn.py', 'messages.py', 'pane_input.py', 'mcp_server.py'):
             tar.add(ROOT / name, arcname=name)
         tar.add(ROOT.parent / 'config/zellij.kdl', arcname='zellij.kdl')
         tar.add(ROOT.parent / 'config/layout.kdl', arcname='layout.kdl')

@@ -61,6 +61,21 @@ Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces th
 
 Detection tries these in order: the pane a Claude background job is attached from, `DEVBOX_SESSION` (set by the remote relay), `ZELLIJ_SESSION_NAME`, and an exact Codex/Claude thread ID in the session agent registry with a matching live PID and process start time. Missing or ambiguous identity exits nonzero with an actionable error. Working directories and the existence of a single session are never used as guesses. Status hooks keep their silent no-op behavior outside a session.
 
+## MCP server
+
+`app/mcp_server.py` is a stdio MCP server that exposes session operations as typed tools. It calls the same functions as the CLI (`cli.py`), so the control socket, the relay and the validation are shared. The session comes from [current-session detection](#current-session-detection) on every call; outside a devbox session a tool returns an error result.
+
+| Tool | Same as |
+|---|---|
+| `notes_read`, `notes_append` | `devbox-notes cat`, `append` |
+| `open_url` | `devbox-open` |
+| `msg_send`, `msg_inbox` | `devbox msg send`, `inbox` (inbox does not acknowledge) |
+| `session_spawn` | `devbox spawn` |
+
+Widget, todo, wait and delegated-control tools are not exposed yet.
+
+Devbox registers the server as `devbox` in the user's `~/.claude.json` (`mcpServers`) and `~/.codex/config.toml` (`[mcp_servers.devbox]`), at home setup and on remote bootstrap. Other servers are never touched, and an existing `devbox` entry is kept. Managed MCP config is not used, because Claude treats it as the only MCP source.
+
 ## Spawning child sessions
 
 `devbox spawn [--name N] [--environment E] [--cwd DIR | --worktree BRANCH] [--agent claude|codex] [--model M] [--permission-mode plan|auto] [--prompt TEXT|-]` creates a session, optionally a git worktree beside the current repository, starts the agent with the prompt, and prints the child's name and URL. The child's `meta.json` records `parent: <session>[:<pane>]` from the detected session (never from an argument), and the dashboard API returns it as `parent`. The prompt gets one line naming the parent and how to message it. It works for local and managed environments; a worktree needs the child in the caller's own environment. The `devbox-spawn` skill covers when to spawn and how to brief a child.
