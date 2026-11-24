@@ -52,6 +52,31 @@ def current_session(explicit=None):
         raise ValueError(str(exc)) from None
 
 
+def doctor_session(explicit):
+    """Detection is optional here: doctor is what you run when detection may be broken."""
+    try:
+        return current_session(explicit)['session']
+    except ValueError:
+        if explicit:
+            raise
+        return None
+
+
+def run_doctor(args):
+    """Remote targets go through the relay when a session is known, else report the target itself.
+
+    The relay only serves requests from a session the server knows, so with no
+    session the target's own diagnostics are the most it can give.
+    """
+    if os.environ.get('DEVBOX_REMOTE') != '1':
+        return request('/api/doctor')
+    session = doctor_session(args.session)
+    if session:
+        return invoke(session, 'doctor', {})
+    import diagnostics
+    return {**diagnostics.report(), 'session': None}
+
+
 def with_view_url(result):
     import devbox_store
     view_url = devbox_store.public_view_url(result['session'])
@@ -230,7 +255,7 @@ def main():
             return
     else:
         sub = parser.add_subparsers(dest='command', required=True)
-        sub.add_parser('doctor')
+        sub.add_parser('doctor').add_argument('--session', help='override automatic detection')
         env = sub.add_parser('env').add_subparsers(dest='action', required=True)
         env.add_parser('list')
         env.add_parser('bootstrap').add_argument('name')
@@ -252,7 +277,7 @@ def main():
         if args.command == 'spawn':
             return run_spawn(args)
         if args.command == 'doctor':
-            result = invoke(current_session()['session'], 'doctor', {}) if os.environ.get('DEVBOX_REMOTE') == '1' else request('/api/doctor')
+            result = run_doctor(args)
         elif args.command == 'forward':
             result = invoke(current_session(args.session)['session'], 'forward', {'port': args.port})
         elif args.action == 'list':
