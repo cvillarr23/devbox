@@ -11,6 +11,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent
+SKILLS = ('devbox-notes', 'devbox-browser', 'devbox-spawn', 'devbox-msg')
+MARKETPLACE = 'devbox'
+PLUGIN_ID = 'devbox@devbox'
 EVENTS = ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
           'PermissionRequest', 'Stop', 'SessionEnd', 'Interrupt']
 
@@ -98,6 +101,82 @@ def install_mcp(root, home):
             _write_atomic(codex, text + ('\n' if text and not text.endswith('\n\n') else '') + table)
 
 
+def plugin_base(root):
+    """Directory holding .claude-plugin/ and plugins/: the bundle root remotely, /opt/devbox in the image."""
+    root = Path(root)
+    return root if (root / '.claude-plugin').is_dir() else root.parent
+
+
+def plugin_settings(base):
+    return {
+        'extraKnownMarketplaces': {MARKETPLACE: {'source': {'source': 'directory', 'path': str(base)}}},
+        'enabledPlugins': {PLUGIN_ID: True},
+    }
+
+
+def enable_plugin(path, base):
+    """Register the devbox marketplace and enable its plugin in user settings.
+
+    Values the user already set (including enabledPlugins false) are kept. A symlinked
+    settings file is not ours to write through, so it is skipped; returns False then.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        return False
+    content = json.loads(path.read_text()) if path.exists() else {}
+    wanted = plugin_settings(base)
+    before = json.dumps(content, sort_keys=True)
+    # The marketplace path is devbox-owned and moves with the bundle, so always refresh it.
+    content.setdefault('extraKnownMarketplaces', {})[MARKETPLACE] = wanted['extraKnownMarketplaces'][MARKETPLACE]
+    content.setdefault('enabledPlugins', {}).setdefault(PLUGIN_ID, True)
+    if json.dumps(content, sort_keys=True) != before:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _backup_once(path)
+        path.write_text(json.dumps(content, indent=2) + '\n')
+    return True
+
+
+def _owned_link(target, base):
+    """True for a symlink into a devbox bundle: this one, the image's, or a remote one."""
+    if not target.is_symlink():
+        return False
+    dest = os.readlink(target)
+    in_bundle = dest.startswith((str(base) + '/', '/opt/devbox/')) or '/.local/share/devbox/' in dest
+    return in_bundle and Path(dest).name in SKILLS
+
+
+def plugin_installed(home):
+    try:
+        data = json.loads((Path(home) / '.claude/plugins/installed_plugins.json').read_text())
+        return bool(data.get('plugins', {}).get(PLUGIN_ID))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def install_skills(root, home):
+    """Link skills for Codex and migrate the old Claude links to the plugin.
+
+    Owned Claude links are re-pointed at the bundle until Claude Code has actually
+    installed the plugin, then removed, so no session is left without skills.
+    Only symlinks into a devbox bundle are replaced or removed; user skills are kept.
+    """
+    home = Path(home)
+    base = plugin_base(root)
+    skills = base / 'plugins/devbox/skills'
+    for skill in SKILLS:
+        legacy = home / '.claude/skills' / skill
+        if _owned_link(legacy, base):
+            legacy.unlink()
+            if not plugin_installed(home):
+                legacy.symlink_to(skills / skill)
+        target = home / '.codex/skills' / skill
+        if _owned_link(target, base):
+            target.unlink()
+        if not target.exists() and not target.is_symlink():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.symlink_to(skills / skill)
+
+
 def install_hooks(root, home, managed=False, remote_control=None):
     home = Path(home)
     for agent in ('claude', 'codex'):
@@ -114,11 +193,15 @@ def install_hooks(root, home, managed=False, remote_control=None):
                 (path.parent / 'config.toml').write_text('check_for_update_on_startup = false\n')
                 continue
             path = Path('/etc/claude-code/managed-settings.json')
+            managed_plugin = plugin_settings(plugin_base(root))
         else:
             path = home / f'.{agent}' / ('hooks.json' if agent == 'codex' else 'settings.json')
         content = json.loads(path.read_text()) if path.exists() else {}
         if managed:
             content.setdefault('env', {})['DISABLE_AUTOUPDATER'] = '1'
+        if managed and agent == 'claude':
+            # Marketplace only: enabling lives in user settings (home_setup) so users can disable it.
+            content.setdefault('extraKnownMarketplaces', {}).update(managed_plugin['extraKnownMarketplaces'])
         hooks = content.setdefault('hooks', {})
         events = EVENTS if agent == 'codex' else EVENTS[:-1] + ['Notification']
         for event in events:
@@ -130,14 +213,12 @@ def install_hooks(root, home, managed=False, remote_control=None):
         path.parent.mkdir(parents=True, exist_ok=True)
         _backup_once(path)
         path.write_text(json.dumps(content, indent=2) + '\n')
-        if agent == 'claude' and not managed and remote_control is not None:
-            ensure_remote_control(path, remote_control)
-    for agent in ('claude', 'codex'):
-        for skill in ('devbox-notes', 'devbox-browser', 'devbox-spawn', 'devbox-msg'):
-            target = home / f'.{agent}/skills/{skill}'
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if not target.exists() and not target.is_symlink():
-                target.symlink_to(root / 'skills' / skill)
+        if agent == 'claude' and not managed:
+            if remote_control is not None:
+                ensure_remote_control(path, remote_control)
+            if not enable_plugin(path, plugin_base(root)):
+                print(f'devbox plugin not enabled: {path} is a symlink; add enabledPlugins "{PLUGIN_ID}" and the devbox marketplace there', file=sys.stderr)
+    install_skills(root, home)
     if not managed:
         install_mcp(root, home)
 
@@ -149,7 +230,8 @@ def archive():
             tar.add(ROOT / name, arcname=name)
         tar.add(ROOT.parent / 'config/zellij.kdl', arcname='zellij.kdl')
         tar.add(ROOT.parent / 'config/layout.kdl', arcname='layout.kdl')
-        tar.add(ROOT / 'skills', arcname='skills')
+        tar.add(ROOT.parent / '.claude-plugin', arcname='.claude-plugin')
+        tar.add(ROOT.parent / 'plugins', arcname='plugins')
     return base64.b64encode(buf.getvalue()).decode()
 
 

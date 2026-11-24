@@ -1,0 +1,12 @@
+{
+  "name": "devbox",
+  "description": "Devbox agent skills.",
+  "owner": {"name": "cvillarr23"},
+  "plugins": [
+    {
+      "name": "devbox",
+      "source": "./plugins/devbox",
+      "description": "Skills for agents running inside devbox: browser, messages, notes, spawn."
+    }
+  ]
+}

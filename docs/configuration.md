@@ -53,7 +53,18 @@ For Kubernetes, create a Secret separately and mount its kubeconfig at `$HOME/.k
 
 The container image installs managed agent hooks without changing mounted user config. Remote bootstrap uses user hook configuration and makes a `.pre-devbox` backup of existing JSON settings. Review Codex user hooks through `/hooks`; bootstrap does not bypass trust review or approval policies.
 
-Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Existing skill directories are kept. Remote targets require Python 3.10 or newer.
+Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Remote targets require Python 3.10 or newer.
+
+## Skills plugin
+
+The devbox skills (`devbox-browser`, `devbox-msg`, `devbox-notes`, `devbox-spawn`) ship as a Claude Code plugin from this repository: marketplace `devbox` (`.claude-plugin/marketplace.json`), plugin `devbox`, install id `devbox@devbox`. Both names are a stable public interface. The skills live in `plugins/devbox/skills/` and version with devbox releases.
+
+- **Image:** managed settings declare the marketplace from `/opt/devbox`; startup (`devbox-setup-home`) sets `enabledPlugins["devbox@devbox"]` in `~/.claude/settings.json` only if you have not set it.
+- **Remote targets:** bootstrap unpacks the marketplace under `~/.local/share/devbox` and declares and enables it in `~/.claude/settings.json` the same way. Re-running bootstrap replaces the bundle, which is how upgrades reach the skills.
+- **Codex** has no marketplace, so `~/.codex/skills/devbox-*` are symlinks into the bundle. Bootstrap and startup re-point only symlinks that already point into a devbox bundle; a real directory or a link to elsewhere is left alone. Old devbox-owned links in `~/.claude/skills` are re-pointed at the bundle until Claude Code lists `devbox@devbox` in `~/.claude/plugins/installed_plugins.json`, then removed, so a session never loses its skills mid-upgrade.
+- **Symlinked `settings.json`** (for example managed by dotfiles) is never written through. Add the marketplace and `enabledPlugins` entry there yourself, or install from the published marketplace: `claude plugin marketplace add cvillarr23/devbox` then `claude plugin install devbox@devbox`.
+
+To disable it, run `claude plugin disable devbox@devbox`, or set `"enabledPlugins": {"devbox@devbox": false}` in `~/.claude/settings.json`; devbox keeps that choice. For Codex, delete the `~/.codex/skills/devbox-*` links, though startup recreates any that are missing. Replace a link with your own directory to keep it.
 
 ## Current-session detection
 

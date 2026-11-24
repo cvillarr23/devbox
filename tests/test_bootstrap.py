@@ -127,3 +127,99 @@ def test_install_mcp_writes_atomically_and_keeps_mode(tmp_path):
     fresh = tmp_path / 'fresh'
     install_mcp(tmp_path / 'app', fresh)
     assert (fresh / '.claude.json').stat().st_mode & 0o777 == 0o600
+
+
+# The marketplace and plugin names are a public interface (dotfiles#11): do not rename.
+def test_marketplace_contract():
+    from pathlib import Path
+    repo = Path(__file__).resolve().parent.parent
+    market = json.loads((repo / '.claude-plugin/marketplace.json').read_text())
+    assert market['name'] == 'devbox'
+    entry = market['plugins'][0]
+    assert entry['name'] == 'devbox'
+    plugin = repo / entry['source']
+    assert json.loads((plugin / '.claude-plugin/plugin.json').read_text())['name'] == 'devbox'
+    from bootstrap import SKILLS
+    assert all((plugin / 'skills' / s / 'SKILL.md').is_file() for s in SKILLS)
+
+
+def make_bundle(tmp_path):
+    base = tmp_path / '.local/share/devbox'
+    (base / '.claude-plugin').mkdir(parents=True)
+    for s in ('devbox-notes', 'devbox-browser', 'devbox-spawn', 'devbox-msg'):
+        (base / 'plugins/devbox/skills' / s).mkdir(parents=True)
+    return base
+
+
+def test_enable_plugin_keeps_user_choices(tmp_path):
+    from bootstrap import enable_plugin
+    path = tmp_path / 's.json'
+    path.write_text(json.dumps({'enabledPlugins': {'devbox@devbox': False, 'x@y': True}, 'extraKnownMarketplaces': {'y': {}}}))
+    assert enable_plugin(path, tmp_path / 'b')
+    data = json.loads(path.read_text())
+    assert data['enabledPlugins'] == {'devbox@devbox': False, 'x@y': True}
+    assert data['extraKnownMarketplaces']['y'] == {}
+    assert data['extraKnownMarketplaces']['devbox']['source']['path'] == str(tmp_path / 'b')
+    assert (tmp_path / 's.json.pre-devbox').exists()
+
+
+def test_enable_plugin_fresh_and_idempotent(tmp_path):
+    from bootstrap import enable_plugin
+    path = tmp_path / '.claude/settings.json'
+    enable_plugin(path, tmp_path / 'b')
+    first = path.read_text()
+    enable_plugin(path, tmp_path / 'b')
+    assert path.read_text() == first
+    assert json.loads(first)['enabledPlugins'] == {'devbox@devbox': True}
+    assert not (tmp_path / '.claude/settings.json.pre-devbox').exists()
+
+
+def test_enable_plugin_skips_symlinked_settings(tmp_path):
+    from bootstrap import enable_plugin
+    real = tmp_path / 'dot/settings.json'
+    real.parent.mkdir()
+    real.write_text('{"a": 1}')
+    link = tmp_path / '.claude/settings.json'
+    link.parent.mkdir()
+    link.symlink_to(real)
+    assert enable_plugin(link, tmp_path / 'b') is False
+    assert real.read_text() == '{"a": 1}'
+    assert not list(tmp_path.rglob('*.pre-devbox'))
+
+
+def test_install_skills_replaces_only_owned_links(tmp_path):
+    from bootstrap import install_skills
+    base = make_bundle(tmp_path)
+    home = tmp_path / 'home'
+    codex, claude = home / '.codex/skills', home / '.claude/skills'
+    codex.mkdir(parents=True)
+    claude.mkdir(parents=True)
+    (codex / 'devbox-notes').symlink_to('/opt/devbox/app/skills/devbox-notes')  # stale image link
+    (codex / 'devbox-msg').mkdir()                                              # user's own dir
+    foreign = tmp_path / 'mine/devbox-spawn'
+    foreign.mkdir(parents=True)
+    (codex / 'devbox-spawn').symlink_to(foreign)                                # foreign link
+    (claude / 'devbox-browser').symlink_to(base / 'skills/devbox-browser')      # legacy owned
+    (claude / 'devbox-msg').symlink_to(foreign)                                 # foreign
+    install_skills(base, home)
+    skills = base / 'plugins/devbox/skills'
+    assert (codex / 'devbox-notes').resolve() == (skills / 'devbox-notes').resolve()
+    assert (codex / 'devbox-browser').resolve() == (skills / 'devbox-browser').resolve()
+    assert (codex / 'devbox-msg').is_dir() and not (codex / 'devbox-msg').is_symlink()
+    assert (codex / 'devbox-spawn').resolve() == foreign.resolve()
+    # plugin not installed yet: the owned Claude link is re-pointed, not removed
+    assert (claude / 'devbox-browser').resolve() == (skills / 'devbox-browser').resolve()
+    assert (claude / 'devbox-msg').resolve() == foreign.resolve()
+
+
+def test_owned_claude_links_removed_once_plugin_installed(tmp_path):
+    from bootstrap import install_skills
+    base = make_bundle(tmp_path)
+    home = tmp_path / 'home'
+    claude = home / '.claude/skills'
+    claude.mkdir(parents=True)
+    (claude / 'devbox-msg').symlink_to('/opt/devbox/app/skills/devbox-msg')
+    (home / '.claude/plugins').mkdir()
+    (home / '.claude/plugins/installed_plugins.json').write_text(json.dumps({'version': 2, 'plugins': {'devbox@devbox': [{}]}}))
+    install_skills(base, home)
+    assert not (claude / 'devbox-msg').is_symlink()
