@@ -171,6 +171,18 @@ def layout(cwd, script):
 """ % (_kdl(cwd), _kdl(script))
 
 
+def color_env(env):
+    """Default TERM/COLORTERM for zellij and its panes; a value the operator set wins.
+
+    Nothing in the pod sets them and the zellij server (and every pane) inherits the
+    environment of whoever created the session. xterm.js in ttyd handles 24-bit color.
+    """
+    for key, value in (("TERM", "xterm-256color"), ("COLORTERM", "truecolor")):
+        if not env.get(key):
+            env[key] = value
+    return env
+
+
 def zellij_config():
     bundled = ROOT / "zellij.kdl"  # remote helper bundle keeps config beside the code
     return str(bundled if bundled.is_file() else ROOT.parent / "config/zellij.kdl")
@@ -209,6 +221,7 @@ def start_agent(name, cwd, spec, prompt):
     layout_file.write_text(layout(cwd, agent_script(spec["agent"], spec["model"], spec["permission_mode"], str(prompt_file))))
     env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh"}
     env["PATH"] = str(ROOT / "bin") + ":" + env.get("PATH", "")
+    color_env(env)
     _create_detached(name, cwd, layout_file, env)
 
 
