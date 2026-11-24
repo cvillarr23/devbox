@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,15 @@ class AgentPinsTest(unittest.TestCase):
             if tools[name].get('version'):
                 self.assertEqual(tools[name]['latest'], '9.9.9')
                 self.assertTrue(tools[name]['stale'])
+
+    def test_latest_version_ignores_failed_npm_view(self):
+        failed = subprocess.CompletedProcess([], 1, stdout='9.9.9\n', stderr='error')
+        ok = subprocess.CompletedProcess([], 0, stdout='9.9.9\n', stderr='')
+        with patch.object(diagnostics.shutil, 'which', return_value='/usr/bin/npm'):
+            with patch.object(diagnostics.subprocess, 'run', return_value=failed):
+                self.assertIsNone(diagnostics.latest_version('pkg'))
+            with patch.object(diagnostics.subprocess, 'run', return_value=ok):
+                self.assertEqual(diagnostics.latest_version('pkg'), '9.9.9')
 
 
 if __name__ == '__main__':

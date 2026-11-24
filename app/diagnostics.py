@@ -42,10 +42,10 @@ def latest_version(package):
     if not npm:
         return None
     try:
-        result = subprocess.run([npm, 'view', package, 'version'], capture_output=True, text=True, timeout=8)
+        result = subprocess.run([npm, 'view', package, 'version'], capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    return result.stdout.strip() or None if result.returncode == 0 else None
+    return (result.stdout.strip() or None) if result.returncode == 0 else None
 
 
 def report():
