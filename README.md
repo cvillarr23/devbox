@@ -162,7 +162,7 @@ devbox forward 3000                             # Selected remote localhost serv
 
 For a remote preview, open the URL returned by `devbox forward` with `--target remote`. That localhost URL belongs to devbox; it is not a URL for the user's local browser. Forwards listen on devbox's loopback interface and end with the session connection.
 
-`BROWSER` and `xdg-open` use `DEVBOX_OPEN_TARGET`, normally `remote`. Agents can choose either destination using the CLI and bundled `devbox-browser` skill. No MCP server is required.
+`BROWSER` and `xdg-open` use `DEVBOX_OPEN_TARGET`, normally `remote`. Agents can choose either destination using the CLI and bundled `devbox-browser` skill, or the `open_url` MCP tool (see [Configuration](docs/configuration.md#mcp-server)).
 
 A local link request is queued for the session viewer and claimed once. Browser popup blocking or an absent viewer leaves a clickable pending link in the sidebar. A `pending` CLI result does not claim the page opened. Only HTTP(S) URLs without embedded credentials are accepted.
 

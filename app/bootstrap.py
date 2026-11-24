@@ -3,7 +3,9 @@ import base64
 import io
 import json
 import os
+import re
 import shlex
+import sys
 import tarfile
 from pathlib import Path
 
@@ -38,6 +40,62 @@ def ensure_remote_control(path, enabled):
     path.parent.mkdir(parents=True, exist_ok=True)
     _backup_once(path)
     path.write_text(json.dumps(content, indent=2) + '\n')
+
+
+CODEX_MCP_TABLE = re.compile(r'^\s*\[mcp_servers\.("devbox"|devbox)(\.[^\]]*)?\]', re.M)
+
+
+def _write_atomic(path, text):
+    """Replace path in one step so a reader never sees a half-written file, keeping its mode."""
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    tmp = path.with_name(f'.{path.name}.devbox-tmp')
+    try:
+        tmp.write_text(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def _symlinked(path, hint):
+    """A symlinked config is managed elsewhere (dotfiles), so never write through it."""
+    if not path.is_symlink():
+        return False
+    print(f'devbox: not registering MCP server, {path} is a symlink; add this there:\n{hint}', file=sys.stderr)
+    return True
+
+
+def install_mcp(root, home):
+    """Register the devbox MCP server for Claude and Codex in the user's own config.
+
+    Same rule as the hooks: other entries are never touched, and an existing
+    `devbox` entry is the user's to keep. Symlinked configs are skipped.
+    Managed config is not used because Claude treats managed-mcp.json as the
+    only MCP source.
+    """
+    home = Path(home)
+    home.mkdir(parents=True, exist_ok=True)
+    script = str(Path(root) / 'mcp_server.py')
+    entry = {'type': 'stdio', 'command': 'python3', 'args': [script], 'env': {}}
+    claude = home / '.claude.json'
+    if not _symlinked(claude, f'"mcpServers": {{"devbox": {json.dumps(entry)}}}'):
+        try:
+            content = json.loads(claude.read_text()) if claude.exists() else {}
+            servers = content.setdefault('mcpServers', {})
+            if 'devbox' not in servers:
+                servers['devbox'] = entry
+                _backup_once(claude)
+                _write_atomic(claude, json.dumps(content, indent=2) + '\n')
+        except (ValueError, AttributeError):
+            print(f'devbox: not registering MCP server, cannot parse {claude}', file=sys.stderr)
+    codex = home / '.codex/config.toml'
+    table = f'[mcp_servers.devbox]\ncommand = "python3"\nargs = [{json.dumps(script)}]\n'
+    if not _symlinked(codex, table):
+        text = codex.read_text() if codex.exists() else ''
+        if not CODEX_MCP_TABLE.search(text):
+            codex.parent.mkdir(parents=True, exist_ok=True)
+            _backup_once(codex)
+            _write_atomic(codex, text + ('\n' if text and not text.endswith('\n\n') else '') + table)
 
 
 def install_hooks(root, home, managed=False, remote_control=None):
@@ -80,12 +138,14 @@ def install_hooks(root, home, managed=False, remote_control=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             if not target.exists() and not target.is_symlink():
                 target.symlink_to(root / 'skills' / skill)
+    if not managed:
+        install_mcp(root, home)
 
 
 def archive():
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode='w:gz') as tar:
-        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py', 'spawn.py', 'messages.py', 'pane_input.py'):
+        for name in ('remote.py', 'diagnostics.py', 'bootstrap.py', 'devbox_store.py', 'agent_process.py', 'codex_daemon.py', 'devbox-status', 'cli.py', 'current_session.py', 'spawn.py', 'messages.py', 'pane_input.py', 'mcp_server.py'):
             tar.add(ROOT / name, arcname=name)
         tar.add(ROOT.parent / 'config/zellij.kdl', arcname='zellij.kdl')
         tar.add(ROOT.parent / 'config/layout.kdl', arcname='layout.kdl')

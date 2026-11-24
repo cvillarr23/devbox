@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-from bootstrap import ensure_remote_control, remote_control_enabled
+from bootstrap import ROOT, ensure_remote_control, install_mcp, remote_control_enabled
 
 MARKER = '# Managed by devbox home setup\n'
 
@@ -45,6 +45,7 @@ def setup(home, omz=Path('/opt/oh-my-zsh')):
     write_config(home / '.zshrc', ZSHRC)
     write_config(home / '.zshenv', ZSHENV)
     ensure_remote_control(home / '.claude/settings.json', remote_control_enabled())
+    install_mcp(ROOT, home)
 
 
 def _resolve_installer(checkout, installer):
