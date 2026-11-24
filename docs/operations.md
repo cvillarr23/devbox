@@ -10,6 +10,8 @@
 
 Running processes don't persist: terminals, agents, Chrome and port forwards end when the container or pod is replaced. Every session then shows as stopped and stays that way until someone presses **Reconnect**. Reconnect starts a fresh terminal from the default layout. It never replays shell commands: devbox doesn't let Zellij serialize sessions, and it deletes any copy of an exited session left in `~/.cache/zellij` by an older release, so it can't be resurrected. `tests/replacement_check.py` checks this.
 
+If a session's working directory was deleted (for example its worktree was removed after a merge), attaching starts in the nearest existing parent directory, else `$HOME`, and prints a one-line notice; the session list marks such local sessions with `cwd_missing: true`.
+
 ## Sizing
 
 Home and state are small: tens of MB, plus Chrome profiles and agent homes. Projects grow with every clone and worktree. Projects get their own 40Gi `devbox-workspace` volume, so a full workspace can't break logins or session state. Projects and home are also backed up as separate archives.

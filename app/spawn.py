@@ -171,6 +171,19 @@ def layout(cwd, script):
 """ % (_kdl(cwd), _kdl(script))
 
 
+def enter_cwd(cwd):
+    """chdir to cwd, or its nearest existing parent, else $HOME, with a one-line notice."""
+    cwd = os.path.expanduser(cwd) if cwd else str(Path.home())
+    target = Path(cwd)
+    while not target.is_dir() and target != target.parent:
+        target = target.parent
+    if not target.is_absolute() or not target.is_dir():
+        target = Path.home()
+    os.chdir(target)
+    if str(target) != cwd:
+        print(f'devbox: {cwd} no longer exists; starting in {target}', flush=True)
+
+
 def color_env(env):
     """Default TERM/COLORTERM for zellij and its panes; a value the operator set wins.
 

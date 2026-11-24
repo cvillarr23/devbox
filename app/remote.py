@@ -75,10 +75,7 @@ def _session_state(name):
 def attach(name, cwd):
     if not store.valid_name(name):
         raise ValueError('Invalid session name')
-    if cwd:
-        os.chdir(os.path.expanduser(cwd))
-    else:
-        os.chdir(Path.home())
+    child_session.enter_cwd(cwd)
     os.environ.update(DEVBOX_SESSION=name, BROWSER=str(ROOT / 'bin/devbox-open'),
                       PATH=str(ROOT / 'bin') + ':' + os.environ['PATH'])
     child_session.color_env(os.environ)
