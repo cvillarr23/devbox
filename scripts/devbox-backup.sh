@@ -18,7 +18,12 @@ log() { echo "devbox-backup: $*" >&2; }
 
 NAMESPACE=devbox-trial DEPLOYMENT=devbox ARGO_APP= CONTAINER=devbox OUT= HELPER=devbox-backup-helper
 ARGO_NAMESPACE=${ARGO_NAMESPACE:-argocd}
-REPLICAS= ARGO_SYNC= RESTORE_DIR=
+REPLICAS= ARGO_SYNC= RESTORE_DIR= PARTIAL_RESTORE=
+
+# Archive a volume's entries, not "." itself: on rawfile PVCs the volume root (and lost+found)
+# belongs to root, and restoring "." as UID 1000 would fail trying to reset its mode and times.
+ARCHIVE='cd "$1" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -print0 | tar --null -T - --numeric-owner -czf -'
+EXTRACT='cd "$1" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} + && tar --numeric-owner -xzf -'
 
 parse_args() {
   while [ $# -gt 0 ]; do
@@ -132,8 +137,20 @@ stop_helper() { kube delete pod "$HELPER" --ignore-not-found --wait=false >/dev/
 
 k8s_cleanup() {
   stop_helper
+  if [ -n "$PARTIAL_RESTORE" ]; then
+    _report_partial_restore
+    return
+  fi
   start_deployment
   resume_argo_sync
+}
+
+# Leave devbox stopped (and Argo CD paused, or self-heal would start it) rather than run it
+# on volumes that hold only part of the backup.
+_report_partial_restore() {
+  log "restore did not finish; $NAMESPACE/$DEPLOYMENT stays at 0 replicas on partly restored volumes"
+  log "rerun the restore, then: kubectl -n $NAMESPACE scale deployment $DEPLOYMENT --replicas=$REPLICAS"
+  [ -z "$ARGO_SYNC" ] || log "and restore Argo CD sync: kubectl -n $ARGO_NAMESPACE patch application $ARGO_APP --type merge -p '{\"spec\":{\"syncPolicy\":{\"automated\":$ARGO_SYNC}}}'"
 }
 
 k8s_backup() {
@@ -146,14 +163,13 @@ k8s_backup() {
   start_helper "$pvcs"
   for pvc in $pvcs; do
     log "archiving PVC $pvc"
-    kube exec "$HELPER" -- tar -C "/pvc/$pvc" --numeric-owner --exclude=./lost+found -czf - . > "$dir/$pvc.tar.gz"
+    kube exec "$HELPER" -- sh -c "$ARCHIVE" sh "/pvc/$pvc" > "$dir/$pvc.tar.gz"
   done
   (cd "$dir" && sha256sum -- *.tar.gz > SHA256SUMS)
   chmod 600 "$dir"/*
   echo "$dir"
 }
 
-# Restore never deletes lost+found: it belongs to root on a fresh filesystem.
 k8s_restore() {
   [ -n "$RESTORE_DIR" ] || die "restore needs a backup directory"
   verify_checksums "$RESTORE_DIR"
@@ -164,10 +180,12 @@ k8s_restore() {
   pause_argo_sync
   stop_deployment
   start_helper "$pvcs"
+  PARTIAL_RESTORE=1
   for pvc in $pvcs; do
     log "restoring PVC $pvc"
-    kube exec -i "$HELPER" -- sh -c 'cd "$1" && find . -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} + && tar --numeric-owner -xzf -' sh "/pvc/$pvc" < "$RESTORE_DIR/$pvc.tar.gz"
+    kube exec -i "$HELPER" -- sh -c "$EXTRACT" sh "/pvc/$pvc" < "$RESTORE_DIR/$pvc.tar.gz"
   done
+  PARTIAL_RESTORE=
 }
 
 # --- Docker -----------------------------------------------------------------
@@ -179,10 +197,16 @@ container_volumes() {
 volume_tool() {
   image=$(docker inspect -f '{{.Config.Image}}' "$CONTAINER")
   vol=$1; shift
-  docker run --rm -i --user 1000:1000 --network none -v "$vol:/v" --entrypoint sh "$image" -c "$@"
+  docker run --rm -i --user 1000:1000 --network none -v "$vol:/v" --entrypoint sh "$image" -c "$1" sh /v
 }
 
-docker_cleanup() { docker start "$CONTAINER" >/dev/null && log "started $CONTAINER"; }
+docker_cleanup() {
+  if [ -n "$PARTIAL_RESTORE" ]; then
+    log "restore did not finish; $CONTAINER stays stopped on partly restored volumes. Rerun the restore."
+    return
+  fi
+  docker start "$CONTAINER" >/dev/null && log "started $CONTAINER"
+}
 
 docker_backup() {
   dir=$(new_backup_dir "$CONTAINER")
@@ -192,7 +216,7 @@ docker_backup() {
   trap docker_cleanup EXIT
   for vol in $vols; do
     log "archiving volume $vol"
-    volume_tool "$vol" 'tar -C /v --numeric-owner -czf - .' > "$dir/$vol.tar.gz"
+    volume_tool "$vol" "$ARCHIVE" > "$dir/$vol.tar.gz"
   done
   (cd "$dir" && sha256sum -- *.tar.gz > SHA256SUMS)
   chmod 600 "$dir"/*
@@ -207,10 +231,12 @@ docker_restore() {
   log "stopping $CONTAINER"
   docker stop "$CONTAINER" >/dev/null
   trap docker_cleanup EXIT
+  PARTIAL_RESTORE=1
   for vol in $vols; do
     log "restoring volume $vol"
-    volume_tool "$vol" 'cd /v && find . -mindepth 1 -maxdepth 1 -exec rm -rf {} + && tar --numeric-owner -xzf -' < "$RESTORE_DIR/$vol.tar.gz"
+    volume_tool "$vol" "$EXTRACT" < "$RESTORE_DIR/$vol.tar.gz"
   done
+  PARTIAL_RESTORE=
 }
 
 [ $# -ge 2 ] || die "usage: $0 k8s|docker backup|restore [DIR] [options]"
