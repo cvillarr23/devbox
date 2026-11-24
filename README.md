@@ -170,6 +170,19 @@ Chrome's internal sandbox is disabled by default because Docker's default seccom
 
 On a Mac, agents can also drive the host's own Chrome: Claude Code through Claude in Chrome, and other agents over CDP to a dedicated profile. See [host Chrome](docs/host-chrome.md).
 
+## Clipboard
+
+Browser terminals can't reach a system clipboard, so devbox ships copy-only helpers that send an OSC 52 sequence to the terminal, and the browser sets your local clipboard:
+
+```sh
+echo hi | clip                      # stdin, or arguments
+echo hi | xclip -selection clipboard
+echo hi | xsel -bi
+wl-copy hi
+```
+
+`xclip`, `xsel`, `wl-copy` and `wl-paste` exist so CLIs that probe for them (`gh auth login --web`, Claude Code) find a clipboard. Read modes (`xclip -o`, `xsel -o`, `wl-paste`) exit 1 with a message, because a browser terminal can't read the clipboard safely. Every selection (clipboard, primary) maps to the browser clipboard. Payloads over 100 KB are refused. With no terminal (cron, pipes) the helpers exit 0 and write nothing. Zellij forwards the sequence to the browser without extra configuration.
+
 ## Agent status and notes
 
 The dashboard recognizes Claude Code and Codex processes independently of hook activity. Missing hooks show **status unavailable** rather than hiding the agent. Hooks report working, waiting, completion, interruption, and exit. Completion badges clear when acknowledged.
