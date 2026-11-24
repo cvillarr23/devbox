@@ -13,6 +13,7 @@ from pathlib import Path
 import devbox_store as store
 import environments
 import spawn as child_session
+import auth_relay
 import message_router
 import messages
 from browser import Browser
@@ -72,6 +73,7 @@ class Runtime:
         self.forwards = {}
         self.lock = asyncio.Lock()
         self.browser = Browser()
+        self.auth_relay = auth_relay.AuthRelay()
         self.save()
 
     def save(self):
@@ -288,6 +290,9 @@ class Runtime:
             return await self.browser.open(name, args['url'], args.get('target', os.environ.get('DEVBOX_OPEN_TARGET', 'remote')))
         if operation == 'forward':
             return await self.forward(name, args['port'])
+        if operation == 'auth-register':
+            self.auth_relay.register(name, args.get('port'), args.get('url'))
+            return {'ok': True}
         if operation == 'spawn':
             return await self.spawn(name, args)
         if operation == 'msg-send':
@@ -346,6 +351,12 @@ class Runtime:
                     await self.close_forwards(name)
                     self.save()
             await asyncio.sleep(1)
+
+    async def loopback_port(self, name, port):
+        """A port on devbox's own loopback that reaches `port` in the session's environment."""
+        if self.sessions[name]['target']['type'] == 'local':
+            return port
+        return (await self.forward(name, port))['port']
 
     async def forward(self, name, port):
         port = int(port)
