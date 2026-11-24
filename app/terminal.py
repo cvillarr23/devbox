@@ -13,6 +13,7 @@ if entry['target']['type'] == 'local':
     name = entry['name']
     os.chdir(entry['cwd'])
     os.environ.update(DEVBOX_SESSION=name, BROWSER='/opt/devbox/bin/devbox-open', SHELL='/bin/zsh')
+    spawn.color_env(os.environ)
     args = spawn.terminal_command(name, '/opt/devbox/config/layout.kdl')
     os.execvp(args[0], args)
 else:
