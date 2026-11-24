@@ -4,6 +4,7 @@ import pty
 import stat
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -58,6 +59,30 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(clipboard.parse_xclip(["-out"])[0], "read")
         # a selection value that looks like a flag is consumed, not parsed
         self.assertEqual(clipboard.parse_xclip(["-display", ":0", "-i"])[0], "copy")
+
+    def test_xclip_rmlastnl_is_boolean(self):
+        self.assertEqual(clipboard.parse_xclip(["-rmlastnl", "-o"])[0], "read")
+        self.assertEqual(clipboard.parse_xclip(["-rmlastnl", "-selection", "c"])[0], "copy")
+
+    def test_xclip_filter_and_files(self):
+        self.assertEqual(clipboard.parse_xclip(["-f"]), ("filter", []))
+        self.assertEqual(clipboard.parse_xclip(["-selection", "c", "-filter"]), ("filter", []))
+        self.assertEqual(clipboard.parse_xclip(["-sel", "c", "a.txt", "b.txt"]), ("copy", ["a.txt", "b.txt"]))
+        self.assertEqual(clipboard.parse_xclip(["-o", "-f"])[0], "read")
+
+    def test_info_probes(self):
+        for args in (["-version"], ["-h"], ["-help"], ["--version"]):
+            self.assertEqual(clipboard.parse_xclip(args)[0], "info", args)
+        for args in (["--version"], ["-h"], ["--help"]):
+            self.assertEqual(clipboard.parse_xsel(args)[0], "info", args)
+        for args in (["--version"], ["-v"], ["-h"], ["--help"]):
+            self.assertEqual(clipboard.parse_wl_copy(args)[0], "info", args)
+
+    def test_xsel_default_depends_on_stdin(self):
+        self.assertEqual(clipboard.parse_xsel([], stdin_is_tty=False)[0], "copy")
+        self.assertEqual(clipboard.parse_xsel([], stdin_is_tty=True)[0], "read")
+        self.assertEqual(clipboard.parse_xsel(["-b"], stdin_is_tty=True)[0], "read")
+        self.assertEqual(clipboard.parse_xsel(["-bi"], stdin_is_tty=True)[0], "copy")
 
     def test_xsel(self):
         for args in (["--clipboard", "--input"], ["-b", "-i"], ["-bi"], ["-b"], []):
@@ -117,6 +142,60 @@ class ShimTest(unittest.TestCase):
             self.assertEqual(r.stdout, b"")
             self.assertIn(b"copy only", r.stderr)
             self.assertEqual(out, b"")
+
+    def test_info_probes_exit_zero_without_reading_stdin(self):
+        for flavor, args in (("xclip", ["-version"]), ("xclip", ["-h"]), ("xsel", ["--version"]),
+                             ("xsel", ["-h"]), ("wl-copy", ["--version"]), ("wl-copy", ["-h"]),
+                             ("wl-paste", ["--version"])):
+            master, slave = pty.openpty()  # a tty stdin that never sends data would block a copy
+            try:
+                r = subprocess.run([sys.executable, SCRIPT, flavor, *args], stdin=slave,
+                                   env={"PATH": os.environ["PATH"]}, capture_output=True, timeout=10)
+            finally:
+                os.close(master)
+                os.close(slave)
+            self.assertEqual(r.returncode, 0, (flavor, args))
+            self.assertIn(b"devbox OSC 52 shim", r.stdout)
+
+    def test_rmlastnl_read_does_not_block(self):
+        r, out = copy_through_pty("xclip", ["-rmlastnl", "-o"])
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(out, b"")
+
+    def test_xclip_filter_copies_and_passes_through(self):
+        r, out = copy_through_pty("xclip", ["-f", "-selection", "clipboard"], b"data\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stdout, b"data\n")
+        self.assertEqual(out, clipboard.osc52(b"data\n"))
+
+    def test_xclip_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a"), os.path.join(d, "b")
+            for path, body in ((a, b"one\n"), (b, b"two\n")):
+                with open(path, "wb") as f:
+                    f.write(body)
+            r, out = copy_through_pty("xclip", ["-selection", "c", a, b])
+            self.assertEqual(out, clipboard.osc52(b"one\ntwo\n"))
+            r, out = copy_through_pty("xclip", [os.path.join(d, "missing")])
+            self.assertEqual(r.returncode, 1)
+            self.assertIn(b"missing", r.stderr)
+            self.assertEqual(out, b"")
+
+    def test_bare_xsel_with_tty_stdin_is_a_read(self):
+        master, slave = pty.openpty()
+        try:
+            r = subprocess.run([sys.executable, SCRIPT, "xsel"], stdin=slave,
+                               env={"PATH": os.environ["PATH"]}, capture_output=True, timeout=10)
+        finally:
+            os.close(master)
+            os.close(slave)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(b"copy only", r.stderr)
+
+    def test_bare_xsel_with_piped_stdin_copies(self):
+        r, out = copy_through_pty("xsel", [], b"hi\n")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(out, clipboard.osc52(b"hi\n"))
 
     def test_no_terminal_exits_zero_silently(self):
         r = run("clip", stdin=b"hi\n", new_session=True)
