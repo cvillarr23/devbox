@@ -19,7 +19,7 @@
 | `DEVBOX_SPAWN_LIMIT` | `5` | Most live child sessions one parent may `devbox spawn`; `0` disables the limit |
 | `DEVBOX_PUBLIC_URL` | unset (`devbox spawn` prints `http://localhost:$DEVBOX_PORT`) | Public origin, for example `https://devbox-next.roo-net.cc`. Sets `publicHost` in the dashboard config and adds an absolute `view_url` to each session in the API and to `devbox-session --json`; `devbox spawn` prints it too |
 | `DEVBOX_TRUST_PROXY` | unset | Set `1` to honor `X-Forwarded-Proto: https` for the session cookie's `Secure` flag. Off by default because any client can send the header |
-| `DEVBOX_CLAUDE_REMOTE_CONTROL` | `1` | `0`, `false`, `no` or `off` stops devbox from enabling Claude remote control at startup. Devbox sets `remoteControlAtStartup` in `~/.claude/settings.json` (local home at each start, remote targets at bootstrap) only when the key is absent, so a value you set is kept, and a pre-existing file is backed up to `settings.json.pre-devbox` |
+| `DEVBOX_CLAUDE_REMOTE_CONTROL` | `1` | `0`, `false`, `no` or `off` stops devbox from enabling Claude remote control at startup. Devbox sets `remoteControlAtStartup` in `~/.claude/settings.json` (local home at each start, remote targets at bootstrap) only when the key is absent, so a value you set is kept, and a pre-existing file is backed up to `settings.json.pre-devbox`. A symlinked `settings.json` (for example from a dotfiles installer) is never written through; see [Hooks and bootstrap](#hooks-and-bootstrap) |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
 | `DEVBOX_CODEX_SOCKET` | autodetected | Optional existing local Codex daemon Unix socket |
 
@@ -51,7 +51,7 @@ For Kubernetes, create a Secret separately and mount its kubeconfig at `$HOME/.k
 
 ## Hooks and bootstrap
 
-The container image installs managed agent hooks without changing mounted user config. Remote bootstrap uses user hook configuration and makes a `.pre-devbox` backup of existing JSON settings. Review Codex user hooks through `/hooks`; bootstrap does not bypass trust review or approval policies.
+The container image installs managed agent hooks without changing mounted user config. Remote bootstrap uses user hook configuration and makes a `.pre-devbox` backup of existing JSON settings. If `~/.claude/settings.json` or `~/.codex/hooks.json` (or the `~/.claude` or `~/.codex` directory) is a symlink, bootstrap and startup leave it alone: no hooks, no `remoteControlAtStartup`, no `.pre-devbox` copy next to the link. Bootstrap prints `Skipped: ...` and `devbox doctor` reports `agent_settings.<agent>.state: managed-link` with `hooks: false` and a hint. Add the entries to the file the link points at (see the README's dotfiles section). `devbox doctor` also shows `hooks` and `remote_control` for every target. Review Codex user hooks through `/hooks`; bootstrap does not bypass trust review or approval policies.
 
 Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Remote targets require Python 3.10 or newer.
 

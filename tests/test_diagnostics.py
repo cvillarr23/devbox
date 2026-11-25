@@ -31,3 +31,28 @@ def test_report_lists_gh_with_hint_when_missing(monkeypatch):
     gh = diagnostics.report()['tools']['gh']
     assert gh['available'] is False
     assert 'GH_VERSION' in gh['hint']
+
+
+def no_managed(monkeypatch, tmp_path):
+    monkeypatch.setattr(diagnostics, 'MANAGED_SETTINGS', {a: tmp_path / 'none' / a for a in ('claude', 'codex')})
+
+
+def test_agent_settings_states(tmp_path, monkeypatch):
+    no_managed(monkeypatch, tmp_path)
+    (tmp_path / '.claude').mkdir()
+    (tmp_path / '.claude/settings.json').write_text('{"remoteControlAtStartup": true, "x": "devbox-status"}')
+    settings = diagnostics.agent_settings(tmp_path)
+    assert settings['claude']['state'] == 'ok' and settings['claude']['hooks'] is True
+    assert settings['claude']['remote_control'] is True
+    assert settings['codex']['state'] == 'missing' and 'hint' in settings['codex']
+
+
+def test_agent_settings_reports_symlink_without_hooks(tmp_path, monkeypatch):
+    no_managed(monkeypatch, tmp_path)
+    target = tmp_path / 'dots.json'
+    target.write_text('{}')
+    (tmp_path / '.claude').mkdir()
+    (tmp_path / '.claude/settings.json').symlink_to(target)
+    claude = diagnostics.agent_settings(tmp_path)['claude']
+    assert claude['state'] == 'managed-link' and claude['hooks'] is False
+    assert 'managed by' in claude['hint'] and claude['link_target'] == str(target.resolve())
