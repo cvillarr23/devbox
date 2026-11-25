@@ -72,6 +72,21 @@ def agent_settings(home=None):
     return {agent: _agent_settings(agent, home) for agent in ('claude', 'codex')}
 
 
+AGENT_PACKAGES = {'codex': '@openai/codex', 'claude': '@anthropic-ai/claude-code'}
+
+
+def latest_version(package):
+    """Latest published npm version, or None when offline or npm is missing."""
+    npm = shutil.which('npm')
+    if not npm:
+        return None
+    try:
+        result = subprocess.run([npm, 'view', package, 'version'], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return (result.stdout.strip() or None) if result.returncode == 0 else None
+
+
 def report():
     tools = {}
     for name, args in (
@@ -91,6 +106,12 @@ def report():
                 entry.update(version=output.splitlines()[0][:300] if output else '', ok=result.returncode == 0)
             except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
                 entry['ok'] = False
+        if name in AGENT_PACKAGES and entry.get('version'):
+            # Pinned by the image (CLAUDE_VERSION/CODEX_VERSION); self-update is disabled.
+            latest = latest_version(AGENT_PACKAGES[name])
+            if latest:
+                entry['latest'] = latest
+                entry['stale'] = latest not in entry['version'].split()
         if not executable and name in MISSING_HINTS:
             entry['hint'] = MISSING_HINTS[name]
         tools[name] = entry

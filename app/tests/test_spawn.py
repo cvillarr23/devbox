@@ -164,4 +164,20 @@ def test_remote_rpc_spawn_and_worktree(monkeypatch, repo):
 def test_bootstrap_ships_spawn_module():
     import base64, io, tarfile, bootstrap
     names = tarfile.open(fileobj=io.BytesIO(base64.b64decode(bootstrap.archive())), mode='r:gz').getnames()
-    assert 'spawn.py' in names and 'skills/devbox-spawn/SKILL.md' in names
+    assert 'spawn.py' in names and 'plugins/devbox/skills/devbox-spawn/SKILL.md' in names
+
+
+def test_color_env_defaults_and_respects_operator():
+    assert spawn.color_env({}) == {'TERM': 'xterm-256color', 'COLORTERM': 'truecolor'}
+    assert spawn.color_env({'TERM': '', 'COLORTERM': ''})['TERM'] == 'xterm-256color'
+    assert spawn.color_env({'TERM': 'screen', 'COLORTERM': '24bit'}) == {'TERM': 'screen', 'COLORTERM': '24bit'}
+
+
+def test_start_agent_launches_zellij_with_color_env(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.delenv('TERM', raising=False)
+    monkeypatch.delenv('COLORTERM', raising=False)
+    monkeypatch.setattr(spawn.store, 'session_dir', lambda name: str(tmp_path / name))
+    monkeypatch.setattr(spawn, '_create_detached', lambda name, cwd, layout_file, env: seen.update(env))
+    spawn.start_agent('s', str(tmp_path), {'agent': 'claude', 'model': 'opus', 'permission_mode': 'auto'}, 'p')
+    assert seen['TERM'] == 'xterm-256color' and seen['COLORTERM'] == 'truecolor'

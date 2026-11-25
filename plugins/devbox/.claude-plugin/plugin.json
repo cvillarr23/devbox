@@ -1,0 +1,8 @@
+{
+  "name": "devbox",
+  "version": "0.1.11",
+  "description": "Skills for agents running inside devbox: browser, messages, notes, spawn.",
+  "author": {"name": "cvillarr23"},
+  "repository": "https://github.com/cvillarr23/devbox",
+  "license": "MIT"
+}

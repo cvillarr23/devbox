@@ -116,10 +116,14 @@ def test_setup_enables_claude_remote_control_unless_user_chose(tmp_path, monkeyp
     monkeypatch.delenv('DEVBOX_CLAUDE_REMOTE_CONTROL', raising=False)
     setup(tmp_path)
     settings = tmp_path / '.claude/settings.json'
-    assert json.loads(settings.read_text()) == {'remoteControlAtStartup': True}
-    settings.write_text('{"remoteControlAtStartup": false}')
+    data = json.loads(settings.read_text())
+    assert data['remoteControlAtStartup'] is True
+    assert data['enabledPlugins'] == {'devbox@devbox': True}
+    settings.write_text('{"remoteControlAtStartup": false, "enabledPlugins": {"devbox@devbox": false}}')
     setup(tmp_path)
-    assert json.loads(settings.read_text()) == {'remoteControlAtStartup': False}
+    data = json.loads(settings.read_text())
+    assert data['remoteControlAtStartup'] is False
+    assert data['enabledPlugins'] == {'devbox@devbox': False}
 
 
 def test_setup_respects_disable_env(tmp_path, monkeypatch):

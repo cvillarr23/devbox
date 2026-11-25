@@ -29,10 +29,12 @@ WORKDIR /opt/devbox
 COPY requirements.txt .
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY app app
+COPY .claude-plugin .claude-plugin
+COPY plugins plugins
 COPY bin bin
 COPY config config
 RUN usermod -l devbox node && groupmod -n devbox node && usermod -d /home/devbox devbox && mkdir -p /home/devbox /workspace /data /etc/devbox && chown -R 1000:1000 /home/devbox /workspace /data && PYTHONPATH=/opt/devbox/app /opt/venv/bin/python -c 'from pathlib import Path; from bootstrap import install_hooks; install_hooks(Path("/opt/devbox/app"), "/home/devbox", managed=True)' && chown -R 1000:1000 /home/devbox
-ENV PATH="/opt/devbox/bin:/opt/venv/bin:${PATH}" HOME=/home/devbox SHELL=/bin/zsh DEVBOX_STATE_DIR=/data DEVBOX_WORKSPACE=/workspace DEVBOX_ENVIRONMENTS=/etc/devbox/environments.yaml BROWSER=/opt/devbox/bin/devbox-open
+ENV PATH="/opt/devbox/bin:/opt/venv/bin:${PATH}" HOME=/home/devbox SHELL=/bin/zsh DEVBOX_STATE_DIR=/data DEVBOX_WORKSPACE=/workspace DEVBOX_ENVIRONMENTS=/etc/devbox/environments.yaml BROWSER=/opt/devbox/bin/devbox-open DISABLE_AUTOUPDATER=1
 USER 1000:1000
 EXPOSE 7680
 ENTRYPOINT ["/usr/bin/tini", "--"]

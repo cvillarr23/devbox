@@ -47,7 +47,7 @@ Home, agent login configuration, Chrome's profile, and session state persist in 
 
 To use `gh`, run `gh auth login` in a session and choose the device-code flow, which needs no loopback callback. The token is stored in `~/.config/gh` and persists in the home volume; nothing is baked into the image.
 
-Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Extend the Dockerfile for project-specific dependencies.
+Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Agent self-update is disabled; Codex and Claude Code versions change only through a new release (see [configuration](docs/configuration.md#agent-versions)). Extend the Dockerfile for project-specific dependencies.
 
 ## macOS (Apple Silicon, Docker Desktop)
 
@@ -185,13 +185,26 @@ devbox forward 3000                             # Selected remote localhost serv
 
 For a remote preview, open the URL returned by `devbox forward` with `--target remote`. That localhost URL belongs to devbox; it is not a URL for the user's local browser. Forwards listen on devbox's loopback interface and end with the session connection.
 
-`BROWSER` and `xdg-open` use `DEVBOX_OPEN_TARGET`, normally `remote`. Agents can choose either destination using the CLI and bundled `devbox-browser` skill. No MCP server is required.
+`BROWSER` and `xdg-open` use `DEVBOX_OPEN_TARGET`, normally `remote`. Agents can choose either destination using the CLI and bundled `devbox-browser` skill, or the `open_url` MCP tool (see [Configuration](docs/configuration.md#mcp-server)); skills ship as a plugin (see [Skills plugin](docs/configuration.md#skills-plugin)).
 
 A local link request is queued for the session viewer and claimed once. Browser popup blocking or an absent viewer leaves a clickable pending link in the sidebar. A `pending` CLI result does not claim the page opened. Only HTTP(S) URLs without embedded credentials are accepted.
 
 Chrome's internal sandbox is disabled by default because Docker's default seccomp policy blocks Chrome's namespace setup. It runs as the same unprivileged user inside this trusted single-user container. Set `DEVBOX_CHROME_SANDBOX=1` on a deployment whose namespace policy supports Chrome's sandbox.
 
 On a Mac, agents can also drive the host's own Chrome: Claude Code through Claude in Chrome, and other agents over CDP to a dedicated profile. See [host Chrome](docs/host-chrome.md).
+
+## Clipboard
+
+Browser terminals can't reach a system clipboard, so devbox ships copy-only helpers that send an OSC 52 sequence to the terminal, and the browser sets your local clipboard:
+
+```sh
+echo hi | clip                      # stdin, or arguments
+echo hi | xclip -selection clipboard
+echo hi | xsel -bi
+wl-copy hi
+```
+
+`xclip`, `xsel`, `wl-copy` and `wl-paste` exist so CLIs that probe for them (`gh auth login --web`, Claude Code) find a clipboard. Read modes (`xclip -o`, `xsel -o`, `wl-paste`) exit 1 with a message, because a browser terminal can't read the clipboard safely. Every selection (clipboard, primary) maps to the browser clipboard. Payloads over 100 KB are refused. With no terminal (cron, pipes) the helpers exit 0 and write nothing. Zellij forwards the sequence to the browser without extra configuration.
 
 ## Agent status and notes
 

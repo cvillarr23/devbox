@@ -75,12 +75,10 @@ def _session_state(name):
 def attach(name, cwd):
     if not store.valid_name(name):
         raise ValueError('Invalid session name')
-    if cwd:
-        os.chdir(os.path.expanduser(cwd))
-    else:
-        os.chdir(Path.home())
+    child_session.enter_cwd(cwd)
     os.environ.update(DEVBOX_SESSION=name, BROWSER=str(ROOT / 'bin/devbox-open'),
                       PATH=str(ROOT / 'bin') + ':' + os.environ['PATH'])
+    child_session.color_env(os.environ)
     # Metadata and hooks use the Zellij session name on either side of the relay.
     args = child_session.terminal_command(name, ROOT / 'layout.kdl')
     os.execvp(args[0], args)

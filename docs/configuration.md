@@ -11,7 +11,8 @@
 | `DEVBOX_ACCESS_TEAM_DOMAIN` | unset | `cloudflare-access` only, required: team domain, e.g. `myteam.cloudflareaccess.com` |
 | `DEVBOX_ACCESS_AUD` | unset | `cloudflare-access` only, required: Access application AUD tag; comma-separated to accept several applications |
 | `DEVBOX_ACCESS_EMAILS` | unset | `cloudflare-access` only, optional: comma-separated allowlist matched case-insensitively against the JWT `email` claim |
-| `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location |
+| `DEVBOX_TOKEN_FILE` | `<state>/access-token` | Existing token file or generated token location, used by `token` mode and by `DEVBOX_TOKEN_PORT` |
+| `DEVBOX_TOKEN_PORT` | unset | Optional second HTTP listener that always uses token auth, whatever `DEVBOX_AUTH_MODE` is. For a private fallback ingress only; never expose it publicly ([token port](#token-port)) |
 | `DEVBOX_SECURE_COOKIE` | unset | Set `1` when HTTPS terminates at a reverse proxy |
 | `DEVBOX_CHROME_SANDBOX` | `0` | Set `1` when the runtime permits Chrome's sandbox namespaces |
 | `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
@@ -28,7 +29,7 @@
 
 Docker uses a home volume at `/home/devbox` and a state volume at `/data`; projects are a bind mount at `/workspace`. Kubernetes uses the `devbox` PVC for `/data/home` and `/data/state`, and the `devbox-workspace` PVC for `/workspace`. UID/GID 1000 must have write access.
 
-The server generates a random access token only if the configured token file does not exist. Read it using `docker compose exec` or `kubectl exec`; it is not printed into server logs. Tokens must have at least 24 characters.
+The server generates a random access token only if the configured token file does not exist, in `token` mode or whenever `DEVBOX_TOKEN_PORT` is set. Read it using `docker compose exec` or `kubectl exec`; it is not printed into server logs. Tokens must have at least 24 characters.
 
 Agent login state and browser profiles belong to home. Session definitions and notes belong to state. Live processes, open links, and temporary forwards do not survive container replacement. Remote Zellij sessions may remain on the target; reconnect attaches to them if present.
 
@@ -52,13 +53,39 @@ For Kubernetes, create a Secret separately and mount its kubeconfig at `$HOME/.k
 
 The container image installs managed agent hooks without changing mounted user config. Remote bootstrap uses user hook configuration and makes a `.pre-devbox` backup of existing JSON settings. If `~/.claude/settings.json` or `~/.codex/hooks.json` (or the `~/.claude` or `~/.codex` directory) is a symlink, bootstrap and startup leave it alone: no hooks, no `remoteControlAtStartup`, no `.pre-devbox` copy next to the link. Bootstrap prints `Skipped: ...` and `devbox doctor` reports `agent_settings.<agent>.state: managed-link` with `hooks: false` and a hint. Add the entries to the file the link points at (see the README's dotfiles section). `devbox doctor` also shows `hooks` and `remote_control` for every target. Review Codex user hooks through `/hooks`; bootstrap does not bypass trust review or approval policies.
 
-Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Existing skill directories are kept. Remote targets require Python 3.10 or newer.
+Bootstrap is explicit and repeatable. It checks Python/Zellij first, replaces the helper bundle, replaces only hooks whose command invokes devbox-status, and preserves unrelated settings. Remote targets require Python 3.10 or newer.
+
+## Skills plugin
+
+The devbox skills (`devbox-browser`, `devbox-msg`, `devbox-notes`, `devbox-spawn`) ship as a Claude Code plugin from this repository: marketplace `devbox` (`.claude-plugin/marketplace.json`), plugin `devbox`, install id `devbox@devbox`. Both names are a stable public interface. The skills live in `plugins/devbox/skills/` and version with devbox releases.
+
+- **Image:** managed settings declare the marketplace from `/opt/devbox`; startup (`devbox-setup-home`) sets `enabledPlugins["devbox@devbox"]` in `~/.claude/settings.json` only if you have not set it.
+- **Remote targets:** bootstrap unpacks the marketplace under `~/.local/share/devbox` and declares and enables it in `~/.claude/settings.json` the same way. Re-running bootstrap replaces the bundle, which is how upgrades reach the skills.
+- **Codex** has no marketplace, so `~/.codex/skills/devbox-*` are symlinks into the bundle. Bootstrap and startup re-point only symlinks that already point into a devbox bundle; a real directory or a link to elsewhere is left alone. Old devbox-owned links in `~/.claude/skills` are re-pointed at the bundle until Claude Code lists `devbox@devbox` in `~/.claude/plugins/installed_plugins.json`, then removed, so a session never loses its skills mid-upgrade.
+- **Symlinked `settings.json`** (for example managed by dotfiles) is never written through. Add the marketplace and `enabledPlugins` entry there yourself, or install from the published marketplace: `claude plugin marketplace add cvillarr23/devbox` then `claude plugin install devbox@devbox`.
+
+To disable it, run `claude plugin disable devbox@devbox`, or set `"enabledPlugins": {"devbox@devbox": false}` in `~/.claude/settings.json`; devbox keeps that choice. For Codex, delete the `~/.codex/skills/devbox-*` links, though startup recreates any that are missing. Replace a link with your own directory to keep it.
 
 ## Current-session detection
 
 `devbox-session` prints the current session name; `devbox-session --json` adds the pane and detection source. `devbox-notes`, `devbox-open`, `devbox forward`, `devbox-msg` and `devbox-status show` use the same resolver, and an explicit `--session NAME` overrides it, except for `devbox-msg send`, whose sender can't be overridden.
 
 Detection tries these in order: the pane a Claude background job is attached from, `DEVBOX_SESSION` (set by the remote relay), `ZELLIJ_SESSION_NAME`, and an exact Codex/Claude thread ID in the session agent registry with a matching live PID and process start time. Missing or ambiguous identity exits nonzero with an actionable error. Working directories and the existence of a single session are never used as guesses. Status hooks keep their silent no-op behavior outside a session.
+
+## MCP server
+
+`app/mcp_server.py` is a stdio MCP server that exposes session operations as typed tools. It calls the same functions as the CLI (`cli.py`), so the control socket, the relay and the validation are shared. The session comes from [current-session detection](#current-session-detection) on every call; outside a devbox session a tool returns an error result.
+
+| Tool | Same as |
+|---|---|
+| `notes_read`, `notes_append` | `devbox-notes cat`, `append` |
+| `open_url` | `devbox-open` |
+| `msg_send`, `msg_inbox` | `devbox msg send`, `inbox` (inbox does not acknowledge) |
+| `session_spawn` | `devbox spawn` |
+
+Widget, todo, wait and delegated-control tools are not exposed yet.
+
+Devbox registers the server as `devbox` in the user's `~/.claude.json` (`mcpServers`) and `~/.codex/config.toml` (`[mcp_servers.devbox]`), at home setup and on remote bootstrap. Other servers are never touched, and an existing `devbox` entry is kept. Managed MCP config is not used, because Claude treats it as the only MCP source.
 
 ## Spawning child sessions
 
@@ -82,7 +109,7 @@ The command prints an authorization URL. `auth-relay` registers its `state` with
 
 ## Network behavior
 
-Only the HTTP gateway is exposed. Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.
+Only the HTTP gateway is exposed (plus its token port, if `DEVBOX_TOKEN_PORT` is set). Individual ttyd servers, VNC, websockify, and forwarded preview ports listen on container loopback. SSH and Kubernetes exec connections originate from devbox. Remote helpers do not expose an inbound network listener.
 
 Browser requests and remote forwarding use argument lists and quoted SSH commands. Environment targets come from operator-mounted configuration; the API does not accept arbitrary backend addresses. HTTP requests reject cross-origin mutations, and each viewer must claim a link before acknowledging it.
 
@@ -91,6 +118,14 @@ Behind a reverse proxy, forward the public `Host` header unchanged. The cross-or
 In `proxy` authentication mode, protect the whole gateway, including `/s/`, `/browser/`, and `/api/`, with the upstream authentication layer. For local trials, use the default token mode and port-forwarding.
 
 `cloudflare-access` mode removes the token form and verifies the Access JWT on every HTTP request and WebSocket upgrade, including `/s/`, `/browser/`, and `/api/`. The JWT comes from the `Cf-Access-Jwt-Assertion` header, falling back to the `CF_Authorization` cookie. Devbox checks the RS256 signature against the team's keys at `https://<team domain>/cdn-cgi/access/certs`, plus `aud`, `iss=https://<team domain>`, `exp` and `nbf` with 30 seconds of leeway. Keys are cached by `kid`; an unknown `kid` triggers a refetch, at most once every 30 seconds, and devbox rejects every request while it has no keys. Unlike `proxy` mode, a request that bypasses Access, such as one sent straight to the ClusterIP from another pod, gets `401`. `/healthz` stays open for probes. Startup fails if the team domain or AUD is missing. The pod must be able to reach the team domain over HTTPS.
+
+## Token port
+
+`DEVBOX_TOKEN_PORT` (for example `7681`) opens a second TCP listener next to `DEVBOX_PORT`. It is meant for a private fallback route, such as a Tailscale operator Ingress on the tailnet, that still works when Cloudflare or Access is down. The main port keeps its `DEVBOX_AUTH_MODE`; the token port always uses token auth: the `devbox_session` cookie or an `Authorization: Bearer` header, with the `/login` form for browsers. An Access JWT is neither needed nor accepted there.
+
+Devbox picks the policy from the local port the connection was accepted on, never from `Host`, `X-Forwarded-*` or any other header, so a request to the main port can't reach token auth or `/login` in `cloudflare-access` mode. The cross-origin `Origin` check and the JSON content-type check apply on both ports. Startup creates the token file if needed and fails if the port is invalid or equals `DEVBOX_PORT`. When unset, only `DEVBOX_PORT` listens and nothing changes.
+
+Don't publish the token port through a public ingress, tunnel or `LoadBalancer`: the token is then the only thing between the internet and a shell. Route only a private network to it, and rotate the token by replacing the token file and restarting.
 
 ## Runtime profiles
 
@@ -107,4 +142,16 @@ scheduling this workload. Docker Desktop on macOS has no AppArmor: use
 `unconfined` there, with the custom seccomp profile, which covers both amd64
 and arm64. `devbox doctor` reports the CPU architecture, the AppArmor label
 and seccomp mode the container actually runs with, whether actual sandbox
-execution succeeds, tool versions and hook permissions.
+execution succeeds, tool versions and hook permissions. For Codex and Claude
+Code it also shows the latest published npm version and flags a stale pin
+(`latest`/`stale`; omitted when offline).
+
+## Agent versions
+
+The image pins Codex and Claude Code (`CODEX_VERSION`, `CLAUDE_VERSION` in the
+Dockerfile) under the root-owned `/usr/local` npm prefix, and sessions run as
+UID 1000, so agent self-update cannot work. It is disabled instead:
+`DISABLE_AUTOUPDATER=1` in the image environment and in
+`/etc/claude-code/managed-settings.json`, and
+`check_for_update_on_startup = false` in `/etc/codex/config.toml`. To update an
+agent, bump its pin and cut a release; `devbox doctor` shows when a pin is stale.
