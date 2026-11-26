@@ -20,7 +20,9 @@ import codex_daemon
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 PARENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}(:[0-9]+)?$")
-META_DEFAULTS = {"title": "", "description": "", "cwd": "", "color": "", "parent": ""}
+MESSAGE_KINDS = ("update", "question", "blocker", "contract", "review", "done", "github")
+MESSAGE_SETTING_KEYS = ("nudge", "quiet")
+META_DEFAULTS = {"title": "", "description": "", "cwd": "", "color": "", "parent": "", "messages": {}}
 META_MAX_LEN = {"title": 80, "description": 500, "cwd": 4096, "color": 7, "parent": 80}
 
 
@@ -133,10 +135,24 @@ def read_meta(name):
     return meta
 
 
+def _validate_messages_setting(value):
+    """`messages` is {"nudge": [kinds], "quiet": [kinds]}; {} clears it."""
+    if not isinstance(value, dict):
+        raise InvalidMeta("messages must be an object")
+    for key, kinds in value.items():
+        if key not in MESSAGE_SETTING_KEYS:
+            raise InvalidMeta("unknown messages field: %s" % key)
+        if not isinstance(kinds, list) or any(k not in MESSAGE_KINDS for k in kinds):
+            raise InvalidMeta("messages.%s must be a list of: %s" % (key, ", ".join(MESSAGE_KINDS)))
+
+
 def _validate(patch):
     for key, value in patch.items():
         if key not in META_DEFAULTS:
             raise InvalidMeta("unknown field: %s" % key)
+        if key == "messages":
+            _validate_messages_setting(value)
+            continue
         if not isinstance(value, str):
             raise InvalidMeta("%s must be a string" % key)
         if len(value) > META_MAX_LEN[key]:

@@ -291,7 +291,7 @@ async def session(request):
         else:
             result = rt.browser.ack(name, data['id'], data['viewer'], data['status'])
         return web.json_response(result)
-    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn', 'msg-send', 'msg-who', 'auth-register') and method == 'POST':
+    if action in ('open', 'forward', 'notes-command', 'doctor', 'spawn', 'msg-send', 'msg-config', 'msg-who', 'auth-register') and method == 'POST':
         return web.json_response(await rt.operation(name, 'notes' if action == 'notes-command' else action, data))
     raise web.HTTPNotFound()
 

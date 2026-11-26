@@ -31,11 +31,11 @@ class DevboxStatusCliTest(unittest.TestCase):
         with open(os.path.join(self.tmp.name, "sessions", "s1", "agents", "3.json")) as f:
             return json.load(f)
 
-    def send(self, kind, body="hi", pane=None):
+    def send(self, kind, body="hi", pane=None, **kw):
         sys.path.insert(0, os.path.dirname(CLI))
         import messages
         with mock.patch.dict(os.environ, {"DEVBOX_STATE_DIR": self.tmp.name}):
-            return messages.deliver("s1", {"session": "pm", "pane": "2"}, pane, kind, body)
+            return messages.deliver("s1", {"session": "pm", "pane": "2"}, pane, kind, body, **kw)
 
     def test_prompt_injects_unread_messages_and_acks_them(self):
         self.send("update", "fyi")
@@ -55,6 +55,15 @@ class DevboxStatusCliTest(unittest.TestCase):
         self.assertEqual(out["decision"], "block")
         self.assertIn("A or B?", out["reason"])
         self.assertEqual(self.hook({"hook_event_name": "Stop"}).stdout, "")
+
+    def test_stop_follows_the_stamped_urgency(self):
+        self.send("question", "quiet one", urgency="quiet")
+        self.assertEqual(self.hook({"hook_event_name": "Stop"}).stdout, "")
+        self.send("update", "act now", urgency="urgent")
+        out = json.loads(self.hook({"hook_event_name": "Stop"}).stdout)
+        self.assertEqual(out["decision"], "block")
+        self.assertIn("act now", out["reason"])
+        self.assertNotIn("quiet one", out["reason"])
 
     def test_stop_after_a_block_does_not_block_again(self):
         self.send("blocker")

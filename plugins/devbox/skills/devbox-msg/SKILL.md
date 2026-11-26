@@ -29,7 +29,7 @@ argument, so the receiver can always reply to the `from=` address.
 
 ## Kinds
 
-| Kind | Use for | Delivery |
+| Kind | Use for | Default delivery |
 |---|---|---|
 | `question` | A decision you'd otherwise guess at | Urgent |
 | `blocker` | You can't continue without someone else | Urgent |
@@ -37,12 +37,34 @@ argument, so the receiver can always reply to the `from=` address.
 | `review` | Review posted, rebase needed, merge order (parent → child) | Urgent |
 | `github` | A PR event; a merge means run `post-merge` | Urgent |
 | `update` | A PR opened, a milestone, "waiting on the user" | Inbox only |
-| `done` | The ticket is finished: the final report | Inbox only |
+| `done` | The ticket is finished: the final report | Inbox only; urgent for a session that has spawned children (a PM) |
 
 Every message is shown to the receiving agent on its next prompt. An urgent
 message also stops a busy agent from finishing its turn until it has seen it,
 and an idle agent gets a typed one-line pointer after about 30 seconds.
-Messages to a session whose agent isn't running wait in its inbox.
+Messages to a session whose agent isn't running wait in its inbox. Several
+urgent messages arriving close together get one pointer line, not one each, and
+an agent that is working or waiting for a permission answer is never typed into.
+
+### Changing what is urgent
+
+Urgency is resolved when the message is delivered, first match wins:
+
+1. The message: `--urgent` or `--quiet` on `send`. Use `--urgent` for an `update`
+   the receiver must act on now ("#73 merged, rebase"), and `--quiet` for a
+   `question` that can wait.
+2. The receiving session: `devbox msg config SESSION --nudge done,update
+   --quiet github` (`--reset` clears it; no options shows the effective set).
+   `quiet` beats `nudge`.
+3. The user config `[messages] nudge = [...]` list, which replaces the default set.
+4. The defaults in the table.
+
+```bash
+devbox-msg send core-417 --kind update --urgent "main is green, rebase now"
+devbox-msg send parent --kind question --quiet "naming nit, no rush"
+```
+
+The setting applies to messages delivered after it changes.
 
 Write one self-contained message: what, where (PR or file links), the options if
 you're asking, your recommendation, and what you need back. Leave out greetings

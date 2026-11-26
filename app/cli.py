@@ -167,11 +167,18 @@ def run_auth_relay(args):
     return proc.returncode
 
 
-MSG_USAGE = """devbox-msg send [TO] [--to TO] [--kind KIND] TEXT|-
+MSG_USAGE = """devbox-msg send [TO] [--to TO] [--kind KIND] [--urgent | --quiet] TEXT|-
     TO is SESSION, SESSION:PANE, parent, children or siblings.
+    --urgent nudges an idle receiver; --quiet only waits in its inbox.
+devbox-msg config SESSION [--nudge KIND,...] [--quiet KIND,...] [--reset]
+    Which kinds nudge SESSION's idle agents; no options shows the effective set.
 devbox-msg inbox [--unread] [--follow] [--json]
 devbox-msg ack ID... | --all
 devbox-msg who [--json]"""
+
+
+def _kinds(text):
+    return [k.strip() for k in text.split(',') if k.strip()]
 
 
 def _msg_parser(prog):
@@ -182,6 +189,14 @@ def _msg_parser(prog):
     send.add_argument('words', nargs='+', metavar='[TO] TEXT')
     send.add_argument('--to')
     send.add_argument('--kind', choices=messages.KINDS, default='update')
+    urgency = send.add_mutually_exclusive_group()
+    urgency.add_argument('--urgent', dest='urgency', action='store_const', const='urgent')
+    urgency.add_argument('--quiet', dest='urgency', action='store_const', const='quiet')
+    config = sub.add_parser('config')
+    config.add_argument('session')
+    config.add_argument('--nudge', type=_kinds)
+    config.add_argument('--quiet', type=_kinds)
+    config.add_argument('--reset', action='store_true')
     inbox = sub.add_parser('inbox')
     inbox.add_argument('--unread', action='store_true')
     inbox.add_argument('--follow', action='store_true')
@@ -207,17 +222,26 @@ def _msg_text(args):
     return to, sys.stdin.read() if words == ['-'] else ' '.join(words)
 
 
-def msg_send(to, kind, body):
+def msg_send(to, kind, body, urgency=None):
     """Send as the detected session; the sender is never caller-supplied."""
     session, pane = _msg_identity()
-    return invoke(session, 'msg-send', {'from_pane': pane, 'to': to, 'kind': kind, 'body': body})
+    return invoke(session, 'msg-send', {'from_pane': pane, 'to': to, 'kind': kind, 'body': body,
+                                        **({'urgency': urgency} if urgency else {})})
 
 
 def _msg_send(args):
     to, text = _msg_text(args)
-    result = msg_send(to, args.kind, text)
+    result = msg_send(to, args.kind, text, args.urgency)
     for item in result['delivered']:
         print(f"{item['to']}: " + (f"#{item['id']} " if item['id'] else '') + item['delivery'])
+
+
+def _msg_config(args):
+    session, _ = _msg_identity()
+    result = invoke(session, 'msg-config', {'session': args.session, 'nudge': args.nudge,
+                                            'quiet': args.quiet, 'reset': args.reset})
+    print(f"{result['session']}: nudges on {', '.join(result['nudges']) or 'nothing'}"
+          + (f"  (session setting: {json.dumps(result['setting'])})" if result['setting'] else ''))
 
 
 def _msg_inbox(args):
@@ -272,7 +296,7 @@ def msg_main(argv, prog='devbox-msg'):
         parser.error('unrecognized arguments: ' + ' '.join(extras))
     if extras:
         args.words += extras
-    {'send': _msg_send, 'inbox': _msg_inbox, 'ack': _msg_ack, 'who': _msg_who}[args.action](args)
+    {'send': _msg_send, 'config': _msg_config, 'inbox': _msg_inbox, 'ack': _msg_ack, 'who': _msg_who}[args.action](args)
 
 
 def main():

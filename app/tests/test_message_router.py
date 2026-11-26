@@ -39,8 +39,9 @@ def link(name, parent):
     path.write_text(json.dumps({"title": "", "parent": parent}))
 
 
-async def send(rt, sender, to, kind="question", body="hi", pane="0"):
-    return (await rt.operation(sender, "msg-send", {"from_pane": pane, "to": to, "kind": kind, "body": body}))["delivered"]
+async def send(rt, sender, to, kind="question", body="hi", pane="0", **extra):
+    return (await rt.operation(sender, "msg-send", {"from_pane": pane, "to": to, "kind": kind, "body": body,
+                                                    **extra}))["delivered"]
 
 
 @pytest.mark.asyncio
@@ -136,3 +137,49 @@ async def test_who_and_unread_in_listing(rt, tmp_path):
         assert entry["unread"] == 1
         sent = await client.post("/api/sessions/c1/msg-send", json={"from_pane": "0", "to": "parent", "kind": "done", "body": "shipped"})
         assert (await sent.json())["delivered"][0]["to"] == "pm:2"
+
+
+@pytest.mark.asyncio
+async def test_urgency_flag_is_stamped_on_local_delivery(rt):
+    await send(rt, "c1", "solo", kind="update", urgency="urgent")
+    await send(rt, "c1", "solo", kind="question", urgency="quiet")
+    await send(rt, "c1", "solo", kind="question")
+    assert [m["urgent"] for m in messages.inbox("solo")] == [True, False, True]
+    with pytest.raises(ValueError, match="urgency must be"):
+        await send(rt, "c1", "solo", urgency="loud")
+
+
+@pytest.mark.asyncio
+async def test_remote_delivery_carries_the_resolved_urgency(rt):
+    link("c1", "remote")
+    remote = AsyncMock()
+    remote.call.return_value = {"id": 1}
+    rt.remotes["remote"] = remote
+    await send(rt, "c1", "remote", kind="done")           # remote has a child: done is urgent
+    await send(rt, "c1", "remote", kind="question", urgency="quiet")
+    assert [c.args[0]["urgent"] for c in remote.call.call_args_list] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_a_childs_done_nudges_its_parent_pm(rt):
+    link("c1", "pm:2")
+    await send(rt, "c1", "parent", kind="done")
+    assert [m["urgent"] for m in messages.inbox("pm")] == [True]
+    await send(rt, "c1", "solo", kind="done")
+    assert [m["urgent"] for m in messages.inbox("solo")] == [False]
+
+
+@pytest.mark.asyncio
+async def test_msg_config_sets_shows_and_resets_a_session_setting(rt):
+    shown = await rt.operation("c1", "msg-config", {"session": "solo"})
+    assert shown["nudges"] == ["question", "blocker", "contract", "review", "github"]
+    result = await rt.operation("c1", "msg-config", {"session": "solo", "nudge": ["done", "update"], "quiet": ["github"]})
+    assert result["setting"] == {"nudge": ["done", "update"], "quiet": ["github"]}
+    assert "done" in result["nudges"] and "github" not in result["nudges"]
+    assert store.read_meta("solo")["messages"] == result["setting"]
+    reset = await rt.operation("c1", "msg-config", {"session": "solo", "reset": True})
+    assert reset["setting"] == {}
+    with pytest.raises(ValueError, match="kind must be"):
+        await rt.operation("c1", "msg-config", {"session": "solo", "nudge": ["chat"]})
+    with pytest.raises(ValueError, match="unknown session"):
+        await rt.operation("c1", "msg-config", {"session": "nope"})

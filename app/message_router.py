@@ -99,11 +99,14 @@ def _remote_connected(rt, name):
     return name in rt.remotes and rt.sessions[name]["connection"] == "connected"
 
 
-async def _route(rt, sender, session, pane, kind, body):
-    record = {"from": sender, "pane": pane, "kind": kind, "body": body}
+async def _route(rt, sender, session, pane, kind, body, urgency=None):
+    # The server resolves urgency (session setting, user config, children), since a
+    # remote helper has none of them; the helper stores the answer.
+    record = {"from": sender, "pane": pane, "kind": kind, "body": body,
+              "urgent": messages.resolve_urgent(session, kind, urgency)}
     address = session + (":" + pane if pane else "")
     if rt.sessions[session]["target"]["type"] == "local":
-        ident = messages.deliver(session, sender, pane, kind, body)
+        ident = messages.deliver(session, sender, pane, kind, body, urgent=record["urgent"])
         return {"to": address, "id": ident, "delivery": "inbox"}
     if _remote_connected(rt, session):
         try:
@@ -117,9 +120,10 @@ async def _route(rt, sender, session, pane, kind, body):
 
 async def send(rt, sender, args):
     pane = messages._pane_or_none(args.get("from_pane"))
-    origin = messages._validated({"session": sender, "pane": pane}, args.get("kind"), args.get("body"))
+    urgency = args.get("urgency") or None
+    origin = messages._validated({"session": sender, "pane": pane}, args.get("kind"), args.get("body"), urgency)
     targets = _targets(rt, sender, pane, args.get("to", ""))
-    return {"delivered": [await _route(rt, origin, session, target, args["kind"], args["body"])
+    return {"delivered": [await _route(rt, origin, session, target, args["kind"], args["body"], urgency)
                           for session, target in targets]}
 
 
@@ -151,3 +155,28 @@ def who(rt, sender, args):
     return {"me": sender + (":" + pane if pane else ""), "parent": _parent(sender),
             "children": _children(rt, sender, pane), "siblings": _siblings(rt, sender),
             "sessions": [_session_row(rt, name) for name in rt.sessions]}
+
+
+def _kind_list(value):
+    kinds = [k for k in (value or []) if k]
+    for kind in kinds:
+        if kind not in messages.KINDS:
+            raise ValueError("kind must be one of: " + ", ".join(messages.KINDS))
+    return kinds
+
+
+def config(rt, sender, args):
+    """Show or change which kinds nudge SESSION. `nudge`/`quiet` replace that list; `reset` clears both."""
+    session = args.get("session", "")
+    if session not in rt.sessions:
+        raise ValueError("unknown session: %s" % session)
+    setting = dict(messages._setting(session))
+    if args.get("reset"):
+        setting = {}
+    for key in store.MESSAGE_SETTING_KEYS:
+        if args.get(key) is not None:
+            setting[key] = _kind_list(args[key])
+    if args.get("reset") or any(args.get(k) is not None for k in store.MESSAGE_SETTING_KEYS):
+        store.update_meta(session, {"messages": setting})
+    return {"session": session, "setting": setting,
+            "nudges": [k for k in messages.KINDS if messages.resolve_urgent(session, k)]}
