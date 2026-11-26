@@ -156,8 +156,9 @@ class Runtime:
             if not entry or entry['target']['type'] != 'local':
                 continue
             try:
-                await self.ensure(name, entry['environment'], entry['cwd'])
-                await asyncio.to_thread(child_session.restore_session, name, entry['cwd'])
+                cwd = str(child_session.existing_dir(entry['cwd'])[1])  # a removed worktree must not block restore
+                await self.ensure(name, entry['environment'], cwd)
+                await asyncio.to_thread(child_session.restore_session, name, cwd)
             except Exception as exc:
                 print('Could not restore session %s: %s' % (name, exc), flush=True)
         self.to_restore = []

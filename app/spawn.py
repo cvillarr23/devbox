@@ -198,14 +198,20 @@ def resume_script(resume):
     return '%s || echo %s; exec "${SHELL:-sh}"' % (" ".join(command), _sh_quote(RESUME_HINT % picker))
 
 
-def enter_cwd(cwd):
-    """chdir to cwd, or its nearest existing parent, else $HOME, with a one-line notice."""
+def existing_dir(cwd):
+    """(cwd as given, cwd or its nearest existing parent, else $HOME)."""
     cwd = os.path.expanduser(cwd) if cwd else str(Path.home())
     target = Path(cwd)
     while not target.is_dir() and target != target.parent:
         target = target.parent
     if not target.is_absolute() or not target.is_dir():
         target = Path.home()
+    return cwd, target
+
+
+def enter_cwd(cwd):
+    """chdir to cwd, or its nearest existing parent, else $HOME, with a one-line notice."""
+    cwd, target = existing_dir(cwd)
     os.chdir(target)
     if str(target) != cwd:
         print(f'devbox: {cwd} no longer exists; starting in {target}', flush=True)
@@ -258,7 +264,7 @@ def _reconnect_layout(name, default_layout):
     if not script:
         return default_layout
     cwd = resume.get("cwd")
-    cwd = cwd if isinstance(cwd, str) and os.path.isdir(cwd) else os.getcwd()
+    cwd = str(existing_dir(cwd)[1]) if isinstance(cwd, str) and cwd else os.getcwd()
     path = Path(store.session_dir(name)) / "resume-layout.kdl"
     path.write_text(layout(cwd, script))
     return path
