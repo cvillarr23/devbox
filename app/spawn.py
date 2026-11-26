@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parent
 AGENTS = ("claude", "codex")
 CLAUDE_MODELS = ("opus", "sonnet", "haiku")
 PERMISSION_MODES = ("plan", "auto")
+# Modes a resumed Claude is put back into: wider than what spawn offers, since the user
+# may have switched. bypassPermissions is left out so a restart never turns it back on.
+RESUME_PERMISSION_MODES = PERMISSION_MODES + ("default", "manual", "acceptEdits", "dontAsk")
 CODEX_MODEL_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 BRANCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 MAX_PROMPT = 100_000
@@ -190,7 +193,7 @@ def resume_script(resume):
     if agent == "claude":
         command = ["claude", "--resume", sid]
         command += ["--model", model] if model else []
-        command += ["--permission-mode", mode] if mode in PERMISSION_MODES else []
+        command += ["--permission-mode", mode] if mode in RESUME_PERMISSION_MODES else []
         picker = "claude --resume"
     else:
         command = ["codex", "resume"] + (["-m", model] if model else []) + [sid]

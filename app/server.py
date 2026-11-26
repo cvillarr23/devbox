@@ -98,6 +98,9 @@ def _access_denied(request):
 
 
 async def login(request):
+    # Proxy auth has no token to type, so a tab or form left over from token mode goes to the dashboard.
+    if _policy(request) == 'proxy':
+        raise web.HTTPSeeOther('/')
     if request.method == 'GET':
         return web.Response(text='''<!doctype html><meta name="viewport" content="width=device-width"><title>Devbox login</title>
 <h1>Devbox</h1><form><label>Access token <input type="password" required autocomplete="current-password"></label><button>Sign in</button></form><p role="alert"></p>

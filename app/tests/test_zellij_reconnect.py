@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import spawn
 
@@ -102,6 +104,56 @@ def test_hook_records_resume_for_primary_agent_only(monkeypatch, tmp_path):
     assert store.read_resume('s')['model'] == 'sonnet'
     store.record_agent_event('s', '1', 'claude', {**event, 'hook_event_name': 'SessionEnd'}, 1)
     assert store.read_resume('s')['session_id'] == UUID
+
+
+OTHER_UUID = '9c2d4e10-3b7a-4f61-8d25-1a6b9e0c4f73'
+
+
+def _report(store, event, session_id=UUID, **fields):
+    store.record_agent_event('s', '1', 'claude',
+                             {'hook_event_name': event, 'session_id': session_id, 'cwd': '/w', **fields}, 1)
+    return store.read_resume('s')['permission_mode']
+
+
+@pytest.fixture
+def state(monkeypatch, tmp_path):
+    import devbox_store as store
+    monkeypatch.setenv('DEVBOX_STATE_DIR', str(tmp_path))
+    return store
+
+
+def test_report_on_resume_keeps_the_remembered_permission_mode(state):
+    _report(state, 'Stop', permission_mode='plan')
+    # Claude's SessionStart on resume names no mode; a second restart must still get it.
+    assert _report(state, 'SessionStart', source='resume') == 'plan'
+
+
+def test_latest_reported_permission_mode_beats_the_spawn_mode(state):
+    state.write_spawn('s', {'agent': 'claude', 'permission_mode': 'auto'})
+    assert _report(state, 'Stop', permission_mode='default') == 'default'
+    assert _report(state, 'SessionStart', source='resume') == 'default'
+
+
+def test_spawn_permission_mode_is_used_until_a_report_names_one(state):
+    state.write_spawn('s', {'agent': 'claude', 'permission_mode': 'plan'})
+    assert _report(state, 'SessionStart', source='startup') == 'plan'
+
+
+def test_another_conversation_does_not_inherit_the_permission_mode(state):
+    _report(state, 'Stop', permission_mode='plan')
+    assert _report(state, 'SessionStart', session_id=OTHER_UUID, source='startup') == ''
+
+
+@pytest.mark.parametrize('mode', ['default', 'manual', 'acceptEdits', 'dontAsk', 'plan', 'auto'])
+def test_resume_puts_claude_back_in_its_permission_mode(mode):
+    script = spawn.resume_script({'agent': 'claude', 'session_id': UUID, 'permission_mode': mode})
+    assert 'claude --resume %s --permission-mode %s ||' % (UUID, mode) in script
+
+
+@pytest.mark.parametrize('mode', ['bypassPermissions', '', 'plan; rm -rf ~', None])
+def test_resume_never_turns_on_bypass_or_passes_unknown_modes(mode):
+    script = spawn.resume_script({'agent': 'claude', 'session_id': UUID, 'permission_mode': mode})
+    assert '--permission-mode' not in script
 
 
 def test_restore_session_recreates_with_resume_layout(monkeypatch, tmp_path):
