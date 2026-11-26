@@ -84,6 +84,17 @@ Every upgrade or rollback replaces the pod (`Recreate`):
 4. Check notes, projects and the Chrome profile.
 5. Reconnect the sessions you need.
 
+## Release gate
+
+Every devbox-trial bump restarts the pod and kills the live sessions, so a release candidate has to survive a restart on devbox-dev first. Work through these steps, each one a checkbox in the release PR template (`.github/PULL_REQUEST_TEMPLATE/release.md`; open the PR with `?template=release.md`):
+
+1. Deploy the release candidate to devbox-dev with `scripts/devbox-dev-deploy.sh` in homelab-deployment (see its `docs/devbox-standalone.md`). The script needs `jq`, which the devbox image includes, so you can run it from inside devbox-trial.
+2. Start 2+ sessions there, at least one of them Claude.
+3. Restart the pod: `kubectl -n devbox-dev rollout restart deploy/devbox`.
+4. Confirm each session comes back connected, with its conversation resumed (#79).
+
+Only then open the homelab-deployment pin bump for devbox-trial.
+
 ## PR event notifications
 
 The runtime checks the user's recent PRs once a minute (one `gh api graphql` search, using the runtime's own `gh` auth; if `gh` is missing or logged out it logs once and skips). A PR belongs to the local session whose view URL (`DEVBOX_PUBLIC_URL`/view/NAME) appears in the PR body, else to the session whose cwd has the PR's repository and branch checked out. Events:
