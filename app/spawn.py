@@ -3,6 +3,7 @@
 Shared by the gateway (local targets) and the remote helper (managed targets),
 so the same checks and the same Zellij layout apply on both sides of the relay.
 """
+import json
 import os
 import re
 import shlex
@@ -10,6 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import bootstrap
 import devbox_store as store
 
 ROOT = Path(__file__).resolve().parent
@@ -111,7 +113,33 @@ def create_worktree(cwd, branch):
         raise ValueError("worktree path already exists: " + path)
     exists = subprocess.run(["git", "-C", top, "show-ref", "--verify", "--quiet", "refs/heads/" + branch]).returncode == 0
     _git(top, "worktree", "add", *(() if exists else ("-b", branch)), path, *((branch,) if exists else ()))
+    inherit_folder_trust(top, path)
     return path
+
+
+def inherit_folder_trust(repo, path):
+    """Mark a new worktree trusted for Claude when its repo already is, so the child skips the trust dialog.
+
+    Never blanket trust: an untrusted repo still prompts. A missing, unparsable or
+    symlinked ~/.claude.json is left alone, and failures never fail the spawn.
+    """
+    config = Path.home() / ".claude.json"
+    try:
+        if config.is_symlink() or not config.is_file():
+            return
+        content = json.loads(config.read_text())
+        projects = content.get("projects")
+        if not isinstance(projects, dict) or not isinstance(projects.get(repo), dict) \
+                or projects[repo].get("hasTrustDialogAccepted") is not True:
+            return
+        entry = projects.get(path)
+        if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
+            return
+        projects[path] = {**(entry if isinstance(entry, dict) else {}), "hasTrustDialogAccepted": True}
+        bootstrap._backup_once(config)
+        bootstrap._write_atomic(config, json.dumps(content, indent=2) + "\n")
+    except (OSError, ValueError):
+        pass
 
 
 def remove_worktree(cwd, path):

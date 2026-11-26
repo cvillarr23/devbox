@@ -87,6 +87,8 @@ Widget, todo, wait and delegated-control tools are not exposed yet.
 
 Devbox registers the server as `devbox` in the user's `~/.claude.json` (`mcpServers`) and `~/.codex/config.toml` (`[mcp_servers.devbox]`), at home setup and on remote bootstrap. Other servers are never touched, and an existing `devbox` entry is kept. Managed MCP config is not used, because Claude treats it as the only MCP source.
 
+Worktrees made by `devbox spawn --worktree` inherit Claude's folder trust: when the repo is already trusted in `~/.claude.json` (`projects[<path>].hasTrustDialogAccepted`), the new worktree is marked trusted so the child skips the trust dialog. Untrusted repos still prompt, and a missing, unparsable or symlinked `~/.claude.json` is left alone.
+
 ## Message urgency
 
 Which `devbox-msg` kinds interrupt the receiver is configurable. An urgent message blocks the receiver's `Stop` until it has seen the message, and an idle agent gets a typed pointer line. Other messages wait for the receiver's next prompt. Urgency is resolved when the message is delivered, and the first match wins:
