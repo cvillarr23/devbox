@@ -49,6 +49,9 @@ To use `gh`, run `gh auth login` in a session and choose the device-code flow, w
 
 Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Agent self-update is disabled; Codex and Claude Code versions change only through a new release (see [configuration](docs/configuration.md#agent-versions)). Extend the Dockerfile for project-specific dependencies.
 
+Pull requests from branches in this repository also publish `ghcr.io/cvillarr23/devbox:pr-<number>` (plus `sha-<short>`) once CI passes, so a change can run in a real pod before merge. Fork PRs publish nothing. PR tags are not cleaned up automatically; delete stale `pr-*` versions from the package page.
+
+
 ## macOS (Apple Silicon, Docker Desktop)
 
 Devbox runs natively on `linux/arm64`, so Docker Desktop doesn't emulate it. Docker Desktop's Linux VM has no AppArmor, so select the unconfined AppArmor profile; the custom seccomp filter and Codex's own sandbox stay enabled. Point `DEVBOX_PROJECTS` at a directory Docker Desktop shares (`/Users` is shared by default):
