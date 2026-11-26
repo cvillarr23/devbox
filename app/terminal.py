@@ -11,7 +11,7 @@ entry = json.loads((Path(os.environ['DEVBOX_STATE_DIR']) / 'runtime.json').read_
 if entry['target']['type'] == 'local':
     # Match remote helper's fixed config path without modifying mounted home.
     name = entry['name']
-    os.chdir(entry['cwd'])
+    spawn.enter_cwd(entry['cwd'])
     os.environ.update(DEVBOX_SESSION=name, BROWSER='/opt/devbox/bin/devbox-open', SHELL='/bin/zsh')
     spawn.color_env(os.environ)
     args = spawn.terminal_command(name, '/opt/devbox/config/layout.kdl')

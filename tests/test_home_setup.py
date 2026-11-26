@@ -131,3 +131,14 @@ def test_setup_respects_disable_env(tmp_path, monkeypatch):
     monkeypatch.setenv('DEVBOX_CLAUDE_REMOTE_CONTROL', '0')
     setup(tmp_path)
     assert json.loads((tmp_path / '.claude/settings.json').read_text())['remoteControlAtStartup'] is False
+
+
+def test_setup_leaves_symlinked_settings_alone(tmp_path, monkeypatch):
+    monkeypatch.delenv('DEVBOX_CLAUDE_REMOTE_CONTROL', raising=False)
+    target = tmp_path / 'dotfiles-settings.json'
+    target.write_text('{"theme": "dark"}')
+    (tmp_path / '.claude').mkdir()
+    (tmp_path / '.claude/settings.json').symlink_to(target)
+    setup(tmp_path)
+    assert target.read_text() == '{"theme": "dark"}'
+    assert not list(tmp_path.rglob('*.pre-devbox'))

@@ -29,6 +29,19 @@ def _backup_once(path):
         backup.write_bytes(path.read_bytes())
 
 
+def managed_link(path):
+    """Return where a symlinked settings file (or its directory) points, else None.
+
+    Dotfiles installers link agent settings into their checkout; writing through the
+    link would put devbox's entries in the user's repo.
+    """
+    path = Path(path)
+    for candidate in (path, path.parent):
+        if candidate.is_symlink():
+            return candidate.resolve()
+    return None
+
+
 def ensure_remote_control(path, enabled):
     """Set remoteControlAtStartup in user settings unless the user already chose a value.
 
@@ -36,6 +49,8 @@ def ensure_remote_control(path, enabled):
     and they would override the user's own choice.
     """
     path = Path(path)
+    if managed_link(path):
+        return
     content = json.loads(path.read_text()) if path.exists() else {}
     if 'remoteControlAtStartup' in content:
         return
@@ -43,6 +58,10 @@ def ensure_remote_control(path, enabled):
     path.parent.mkdir(parents=True, exist_ok=True)
     _backup_once(path)
     path.write_text(json.dumps(content, indent=2) + '\n')
+
+
+def _managed_note(agent, path, target):
+    return f'{agent}: hooks not installed: {path.name} is managed by {target}; add the devbox hooks there'
 
 
 CODEX_MCP_TABLE = re.compile(r'^\s*\[mcp_servers\.("devbox"|devbox)(\.[^\]]*)?\]', re.M)
@@ -121,7 +140,7 @@ def enable_plugin(path, base):
     settings file is not ours to write through, so it is skipped; returns False then.
     """
     path = Path(path)
-    if path.is_symlink():
+    if managed_link(path):
         return False
     content = json.loads(path.read_text()) if path.exists() else {}
     wanted = plugin_settings(base)
@@ -177,8 +196,14 @@ def install_skills(root, home):
             target.symlink_to(skills / skill)
 
 
+def _plugin_note(path):
+    return f'devbox plugin not enabled: {path} is a symlink; add enabledPlugins "{PLUGIN_ID}" and the devbox marketplace there'
+
+
 def install_hooks(root, home, managed=False, remote_control=None):
+    """Install hooks; return notes for user settings left alone because they are symlinked."""
     home = Path(home)
+    notes = []
     for agent in ('claude', 'codex'):
         command = shlex.join(['python3', str(root / 'devbox-status'), 'hook', '--agent', agent])
         if managed:
@@ -196,6 +221,12 @@ def install_hooks(root, home, managed=False, remote_control=None):
             managed_plugin = plugin_settings(plugin_base(root))
         else:
             path = home / f'.{agent}' / ('hooks.json' if agent == 'codex' else 'settings.json')
+            target = managed_link(path)
+            if target:
+                notes.append(_managed_note(agent, path, target))
+                if agent == 'claude':
+                    print(_plugin_note(path), file=sys.stderr)
+                continue
         content = json.loads(path.read_text()) if path.exists() else {}
         if managed:
             content.setdefault('env', {})['DISABLE_AUTOUPDATER'] = '1'
@@ -217,10 +248,11 @@ def install_hooks(root, home, managed=False, remote_control=None):
             if remote_control is not None:
                 ensure_remote_control(path, remote_control)
             if not enable_plugin(path, plugin_base(root)):
-                print(f'devbox plugin not enabled: {path} is a symlink; add enabledPlugins "{PLUGIN_ID}" and the devbox marketplace there', file=sys.stderr)
+                print(_plugin_note(path), file=sys.stderr)
     install_skills(root, home)
     if not managed:
         install_mcp(root, home)
+    return notes
 
 
 def archive():
