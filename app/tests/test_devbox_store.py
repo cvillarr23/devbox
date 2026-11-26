@@ -27,13 +27,22 @@ class StoreTest(unittest.TestCase):
             store.session_dir("../etc")
 
     def test_meta_defaults(self):
-        self.assertEqual(store.read_meta("s1"), {"title": "", "description": "", "cwd": "", "color": "", "parent": ""})
+        self.assertEqual(store.read_meta("s1"), {"title": "", "description": "", "cwd": "", "color": "", "parent": "", "messages": {}})
 
     def test_update_meta_merges_and_persists(self):
         store.update_meta("s1", {"title": "Fantasy PM"})
         m = store.update_meta("s1", {"color": "#3b82f6"})
         self.assertEqual(m["title"], "Fantasy PM")
         self.assertEqual(store.read_meta("s1")["color"], "#3b82f6")
+
+    def test_messages_setting_validation_and_reset(self):
+        store.update_meta("s1", {"messages": {"nudge": ["done"], "quiet": ["question"]}})
+        self.assertEqual(store.read_meta("s1")["messages"], {"nudge": ["done"], "quiet": ["question"]})
+        for bad in ({"nudge": ["chat"]}, {"nudge": "done"}, {"loud": []}, "done"):
+            with self.assertRaises(store.InvalidMeta):
+                store.update_meta("s1", {"messages": bad})
+        store.update_meta("s1", {"messages": {}})
+        self.assertEqual(store.read_meta("s1")["messages"], {})
 
     def test_update_meta_validation(self):
         bad = [

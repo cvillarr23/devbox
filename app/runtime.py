@@ -297,6 +297,8 @@ class Runtime:
             return await self.spawn(name, args)
         if operation == 'msg-send':
             return await message_router.send(self, name, args)
+        if operation == 'msg-config':
+            return message_router.config(self, name, args)
         if operation == 'msg-who':
             return message_router.who(self, name, args)
         if operation == 'notes':

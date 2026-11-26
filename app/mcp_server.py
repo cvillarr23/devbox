@@ -52,7 +52,7 @@ def msg_send(args):
     kind = args.get('kind') or 'update'
     if kind not in messages.KINDS:
         raise ValueError('kind must be one of: ' + ', '.join(messages.KINDS))
-    return cli.msg_send(_require_text(args, 'to'), kind, _require_text(args, 'text'))
+    return cli.msg_send(_require_text(args, 'to'), kind, _require_text(args, 'text'), args.get('urgency') or None)
 
 
 def msg_inbox(args):
@@ -97,7 +97,10 @@ def _tools():
          _schema({'to': _string('SESSION, SESSION:PANE, parent, children or siblings'),
                   'text': _string('Message body'),
                   'kind': _string('Message kind; blocker, question, contract and review notify urgently',
-                                  enum=list(messages.KINDS))}, ['to', 'text']), msg_send),
+                                  enum=list(messages.KINDS)),
+                  'urgency': _string('urgent nudges an idle receiver, quiet only waits in its inbox; '
+                                     'default depends on the kind and the receiver', enum=list(messages.URGENCIES))},
+                 ['to', 'text']), msg_send),
         ('msg_inbox', 'List messages sent to this session or pane. Does not acknowledge them.',
          _schema({'unread': {'type': 'boolean', 'description': 'Only unread messages'}}), msg_inbox),
         ('session_spawn', 'Start a child devbox session running an agent, optionally in a new git worktree.',

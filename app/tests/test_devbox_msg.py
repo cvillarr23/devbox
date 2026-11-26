@@ -60,6 +60,17 @@ class DevboxMsgCliTest(unittest.TestCase):
             self.assertIn("unrecognized arguments: " + flag, r.stderr)
         self.assertIn("unrecognized", self.run_cli("inbox", "--from", "x").stderr)
 
+    def test_urgent_and_quiet_are_mutually_exclusive(self):
+        r = self.run_cli("send", "pm", "--urgent", "--quiet", "hi")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not allowed with", r.stderr)
+
+    def test_config_rejects_unknown_options_and_reports_an_offline_server(self):
+        self.assertEqual(self.run_cli("config").returncode, 2)
+        r = self.run_cli("config", "pm", "--nudge", "done,update")
+        self.assertEqual(r.returncode, 1)
+        self.assertTrue(r.stderr.startswith("devbox: "))
+
     def test_send_reports_an_offline_server(self):
         r = self.run_cli("send", "--to", "parent", "--kind", "question", "hi")
         self.assertEqual(r.returncode, 1)

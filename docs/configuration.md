@@ -87,6 +87,26 @@ Widget, todo, wait and delegated-control tools are not exposed yet.
 
 Devbox registers the server as `devbox` in the user's `~/.claude.json` (`mcpServers`) and `~/.codex/config.toml` (`[mcp_servers.devbox]`), at home setup and on remote bootstrap. Other servers are never touched, and an existing `devbox` entry is kept. Managed MCP config is not used, because Claude treats it as the only MCP source.
 
+## Message urgency
+
+Which `devbox-msg` kinds interrupt the receiver is configurable. An urgent message blocks the receiver's `Stop` until it has seen the message, and an idle agent gets a typed pointer line. Other messages wait for the receiver's next prompt. Urgency is resolved when the message is delivered, and the first match wins:
+
+1. The message flag: `devbox msg send ... --urgent` or `--quiet`.
+2. The recipient session's setting, kept in its meta as `messages: {"nudge": [kinds], "quiet": [kinds]}`. Set it with `devbox msg config SESSION --nudge done,update --quiet github` (`--reset` clears it), or `PATCH /api/sessions/{name}/meta`. `quiet` beats `nudge`.
+3. The user config file, `$DEVBOX_CONFIG` or `~/.config/devbox/config.toml`, read by the devbox server:
+
+   ```toml
+   [messages]
+   nudge = ["question", "blocker", "contract", "review", "github", "done"]  # replaces the default set
+   nudge_after = 30    # seconds an urgent message waits before the nudge
+   batch_window = 10   # wait this long after the newest message so a burst gets one line
+   ```
+
+   A missing or invalid file means the defaults.
+4. The defaults: `question`, `blocker`, `contract`, `review` and `github` are urgent. `update` and `done` are not, except that a session which has spawned children (a PM) also nudges on `done`.
+
+A message gets one pointer line per pane per batch, never one per message. An idle PM wakes within `nudge_after` + `batch_window` of a child's `done`. On a managed target the server resolves each message's urgency and the target stores it, but `nudge_after` and `batch_window` use the defaults there.
+
 ## Spawning child sessions
 
 `devbox spawn [--name N] [--environment E] [--cwd DIR | --worktree BRANCH] [--agent claude|codex] [--model M] [--permission-mode plan|auto] [--prompt TEXT|-]` creates a session, optionally a git worktree beside the current repository, starts the agent with the prompt, and prints the child's name and URL. The child's `meta.json` records `parent: <session>[:<pane>]` from the detected session (never from an argument), and the dashboard API returns it as `parent`. The prompt gets one line naming the parent and how to message it. It works for local and managed environments; a worktree needs the child in the caller's own environment. The `devbox-spawn` skill covers when to spawn and how to brief a child.

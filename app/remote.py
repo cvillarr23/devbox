@@ -143,7 +143,7 @@ def rpc(request):
         return {'ok': True}
     if op == 'deliver':
         return {'id': messages.deliver(request['session'], request['from'], request.get('pane'),
-                                       request['kind'], request['body'])}
+                                       request['kind'], request['body'], urgent=request.get('urgent'))}
     if op == 'ack':
         store.ack_done(request['session'])
         return {'ok': True}

@@ -72,7 +72,7 @@ def _hook_output(payload, unread):
     if event in ("SessionStart", "UserPromptSubmit") and unread:
         return {"hookSpecificOutput": {"hookEventName": event,
                                        "additionalContext": messages.context_text(unread)}}, unread
-    urgent = [m for m in unread if m["kind"] in messages.URGENT]
+    urgent = [m for m in unread if messages.is_urgent(m)]
     # stop_hook_active means this Stop already follows one of our blocks.
     if event == "Stop" and urgent and not payload.get("stop_hook_active"):
         reason = "Unread urgent devbox messages arrived; handle them before stopping.\n"
