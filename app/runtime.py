@@ -16,6 +16,7 @@ import spawn as child_session
 import auth_relay
 import message_router
 import messages
+import pr_watcher
 from browser import Browser
 
 ROOT = Path(__file__).resolve().parent
@@ -327,6 +328,9 @@ class Runtime:
             if ticks % 5 == 0:
                 with contextlib.suppress(Exception):
                     await asyncio.to_thread(self._nudge_local)
+            if ticks % pr_watcher.CYCLE_TICKS == 0:
+                with contextlib.suppress(Exception):
+                    await pr_watcher.cycle(self)
             for name, remote in list(self.remotes.items()):
                 if self.sessions[name]['connection'] != 'connected':
                     continue

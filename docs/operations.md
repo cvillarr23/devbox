@@ -79,3 +79,15 @@ Every upgrade or rollback replaces the pod (`Recreate`):
 3. Wait for the rollout.
 4. Check notes, projects and the Chrome profile.
 5. Reconnect the sessions you need.
+
+## PR event notifications
+
+The runtime checks the user's recent PRs once a minute (one `gh api graphql` search, using the runtime's own `gh` auth; if `gh` is missing or logged out it logs once and skips). A PR belongs to the local session whose view URL (`DEVBOX_PUBLIC_URL`/view/NAME) appears in the PR body, else to the session whose cwd has the PR's repository and branch checked out. Events:
+
+| Event | Message |
+| --- | --- |
+| merged | `github` to the owner, `done` to its parent |
+| review (changes requested, comment, approval) | `review` to the owner |
+| failed check (new check or new head commit) | `blocker` to the owner |
+
+Seen events persist in `<state>/pr-events.json`. A PR seen for the first time is recorded silently, and a merge only notifies when it happened after the watcher started, so a redeploy or lost state file does not replay old merges. Sessions on remote targets are not watched.
