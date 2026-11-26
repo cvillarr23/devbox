@@ -212,9 +212,34 @@ async def test_proxy_mode_main_port_unchanged_and_token_port_needs_token(proxy_m
     main, tok, app, _ = proxy_mode
     assert (await main.get('/api/sessions')).status == 200
     # The real token is checked only on the token port, so the main port is no oracle for it.
-    assert (await main.post('/login', json={'token': app['token']})).status == 401
+    right, wrong = [await main.post('/login', json={'token': t}, allow_redirects=False)
+                    for t in (app['token'], 'wrong')]
+    assert right.status == wrong.status == 303
     assert (await tok.get('/api/sessions')).status == 401
     assert (await tok.get('/api/sessions', headers=bearer(app))).status == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method', ['GET', 'POST'])
+async def test_login_in_proxy_mode_redirects_to_the_dashboard(proxy_mode, method):
+    """There is no token to type: a tab left on /login, or its form, must end up on the dashboard."""
+    main, _, _, _ = proxy_mode
+    body = {'token': 'typed into a form from token mode'} if method == 'POST' else None
+    response = await main.request(method, '/login', json=body, allow_redirects=False)
+    assert response.status == 303
+    assert response.headers['Location'] == '/'
+    assert 'Set-Cookie' not in response.headers
+
+
+@pytest.mark.asyncio
+async def test_token_port_keeps_its_login_in_proxy_mode(proxy_mode):
+    _, tok, app, _ = proxy_mode
+    page = await tok.get('/login', allow_redirects=False)
+    assert page.status == 200
+    assert 'Access token' in await page.text()
+    response = await tok.post('/login', json={'token': app['token']}, allow_redirects=False)
+    assert response.status == 200
+    assert response.cookies[server.COOKIE].value == app['token']
 
 
 def test_token_file_created_when_token_port_set(tmp_path, monkeypatch):
