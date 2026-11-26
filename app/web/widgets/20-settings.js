@@ -16,6 +16,7 @@ devbox.registerWidget({
       <input data-field="cwd" placeholder="/workspace">
       <label>Color</label>
       <div class="swatches" style="display:flex;gap:.3rem;flex-wrap:wrap;align-items:center"></div>
+      <label style="display:flex;gap:.4rem;align-items:center"><input type="checkbox" data-pref="autoReconnect" style="width:auto"> Reconnect and resume the agent automatically when opened <span class="muted">(this browser)</span></label>
       <div class="muted status" style="margin-top:.4rem">&nbsp;</div>
       <div style="margin-top:.8rem;display:flex;justify-content:space-between;align-items:center">
         <span class="muted">Session: ${ctx.session}</span>
@@ -43,6 +44,10 @@ devbox.registerWidget({
         if (value !== (ctx.meta[field] || '')) save({[field]: value});
       });
     }
+
+    const auto = el.querySelector('[data-pref="autoReconnect"]');
+    auto.checked = ctx.prefs.get('autoReconnect', true) !== false;
+    auto.addEventListener('change', () => ctx.prefs.set('autoReconnect', auto.checked));
 
     const swatches = el.querySelector('.swatches');
     const hex = document.createElement('input');

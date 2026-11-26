@@ -82,3 +82,17 @@ async def test_listing_is_read_only_and_includes_card_details(dashboard, tmp_pat
     rt.ensure.assert_not_called()
     assert rt.children == {}
     assert rt.path.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_view_offers_reconnect_and_proxy_text_avoids_dashboard(dashboard):
+    client, _ = dashboard
+    body = await (await client.get('/view/one')).text()
+    assert 'id="reconnect-btn"' in body
+    assert 'reconnect from the dashboard' not in body
+    assert 'autoReconnect' in (await (await client.get('/static/widgets/20-settings.js')).text())
+    response = await client.get('/s/7/')
+    assert response.status == 503
+    text = await response.text()
+    assert 'dashboard' not in text
+    assert 'Reconnect it from its page' in text

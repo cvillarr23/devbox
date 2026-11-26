@@ -63,7 +63,7 @@ button.danger{color:var(--danger);border-color:#e5484d66}
   <a href="/" aria-label="All sessions">←</a>
   <label for="client-mode">Display</label>
   <select id="client-mode"><option value="auto">Auto</option><option value="desktop">Desktop</option><option value="mobile">Mobile</option></select>
-  <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="unread-status" hidden></span><span id="connection-status" role="status"></span>
+  <span id="client-status" aria-live="polite"></span><button class="btn" id="browser-toggle">Browser</button><span id="unread-status" hidden></span><span id="connection-status" role="status"></span><button class="btn" id="reconnect-btn" hidden>Reconnect</button>
 </nav>
 <div id="app">
   <section id="browser-panel" hidden style="position:absolute;inset:0;z-index:6;background:var(--bg)"><nav style="padding:.5rem;display:flex;gap:1rem"><button class="btn" id="browser-hide">Back to terminal</button><button class="btn" id="browser-stop">Stop shared browser</button><span id="browser-error" role="alert"></span></nav><iframe id="browser-frame" title="Remote Chrome" allow="clipboard-read; clipboard-write" style="width:100%;height:calc(100% - 48px);border:0"></iframe></section>
@@ -197,19 +197,76 @@ setInterval(() => {
   renderChrome();
 }, 250);
 
+// --- reconnect -----------------------------------------------------------
+// Reload the terminal iframe (xterm or the mobile client) so it attaches to a
+// freshly started ttyd. Assigned once the client mode is known.
+let reloadTerminal = () => {};
+let reconnecting = false;
+let autoTried = false;
+let lastFailure = 0;
+let reconnectError = '';
+const reconnectBtn = document.getElementById('reconnect-btn');
+const autoReconnectOn = () => prefs.get('autoReconnect', true) !== false;
+
+function renderConnection(next) {
+  const down = next.connection !== 'connected';
+  const el = document.getElementById('connection-status');
+  el.textContent = reconnecting ? 'Reconnecting…' : !down ? '' : reconnectError || 'Disconnected';
+  reconnectBtn.hidden = !down && !reconnecting;
+  reconnectBtn.disabled = reconnecting;
+}
+
+async function reconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  reconnectError = '';
+  renderConnection(status);
+  try {
+    const r = await api('/reconnect', {method: 'POST', body: {}});
+    const msg = r.data && r.data.error || (typeof r.data === 'string' ? r.data : '');
+    if (r.ok || /already connected/i.test(msg)) {
+      status = {...status, connection: 'connected'};
+      reloadTerminal();
+    } else {
+      reconnectError = msg || 'Reconnect failed (' + r.status + ')';
+      lastFailure = Date.now();
+    }
+  } catch (e) {
+    reconnectError = 'Reconnect failed: ' + (e && e.message || e);
+    lastFailure = Date.now();
+  }
+  reconnecting = false;
+  renderConnection(status);
+  pollStatus();
+}
+reconnectBtn.onclick = reconnect;
+
+// Once per page load on the first status poll, then again when the tab becomes
+// visible, unless an attempt failed in the last 30s. No retry loop.
+function maybeAutoReconnect(onOpen) {
+  if (!autoReconnectOn() || reconnecting || status.connection === 'connected') return;
+  if (onOpen) { if (autoTried) return; autoTried = true; } else if (Date.now() - lastFailure < 30000) return;
+  reconnect();
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && statusLoaded) maybeAutoReconnect(false);
+});
+
 function setStatus(next) {
   const prev = status;
   status = next;
-  document.getElementById('connection-status').textContent = next.connection === 'connected' ? '' : 'Disconnected — reconnect from the dashboard';
+  renderConnection(next);
   const unread = document.getElementById('unread-status');
   unread.hidden = !next.unread;
   unread.textContent = next.unread ? '✉ ' + next.unread : '';
   unread.title = next.unread + ' unread devbox message' + (next.unread === 1 ? '' : 's') + ' (devbox-msg inbox)';
   if (statusLoaded) notifyTransitions(prev, next);
+  const first = !statusLoaded;
   statusLoaded = true;
   renderChrome();
   for (const cb of statusListeners) { try { cb(ctx.status); } catch (e) { console.error(e); } }
   maybeAck(false);
+  if (first) maybeAutoReconnect(true);
 }
 
 async function pollStatus() {
@@ -344,6 +401,7 @@ document.getElementById('resizer').addEventListener('pointerdown', (e) => {
     term.src = mode === 'mobile' ? `/mobile/${encodeURIComponent(NAME)}` :
       `/s/${offset}/`;
   }
+  reloadTerminal = () => { term.src = term.src; };
   selector.addEventListener('change', () => {
     prefs.set('clientMode', selector.value);
     const url = new URL(location.href);

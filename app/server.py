@@ -169,7 +169,7 @@ async def proxy(request):
         port = 7690 + slot
         entry = next((v for v in rt.sessions.values() if v['port'] == port), None)
         if not entry or entry['connection'] != 'connected':
-            raise web.HTTPServiceUnavailable(text='Session is disconnected. Reconnect from the dashboard.')
+            raise web.HTTPServiceUnavailable(text='Session is disconnected. Reconnect it from its page.')
         path = request.path
     url = f'http://127.0.0.1:{port}{path}'
     if request.query_string:
