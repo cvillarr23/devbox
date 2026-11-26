@@ -404,8 +404,24 @@ def _write_resume(name, entry, payload):
     _atomic_write(os.path.join(session_dir(name), "resume.json"), json.dumps({
         "agent": entry["agent"], "session_id": entry["session_id"],
         "model": _text(spawned.get("model")) or _text(payload.get("model")),
-        "permission_mode": _text(spawned.get("permission_mode")) or _text(payload.get("permission_mode")),
+        "permission_mode": _resume_permission_mode(name, entry, payload, spawned),
         "cwd": entry["cwd"], "updated_at": entry["updated_at"]}) + "\n")
+
+
+def _resume_permission_mode(name, entry, payload, spawned):
+    """The mode this conversation was last seen in. Not every report names one (the
+    SessionStart Claude sends on resume doesn't), so an unnamed mode keeps the
+    remembered one, and the mode it was spawned with only counts until then."""
+    return (_text(payload.get("permission_mode"))
+            or _remembered_permission_mode(name, entry)
+            or _text(spawned.get("permission_mode")))
+
+
+def _remembered_permission_mode(name, entry):
+    """The recorded mode, if the record is for the same conversation as ENTRY."""
+    resume = read_resume(name) or {}
+    same = (resume.get("agent"), resume.get("session_id")) == (entry["agent"], entry["session_id"])
+    return _text(resume.get("permission_mode")) if same else ""
 
 
 def write_spawn(name, spec):
