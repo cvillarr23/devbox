@@ -1,4 +1,5 @@
 """devbox spawn: argument checks, worktrees, limits, parent link."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +71,55 @@ def test_create_worktree_new_and_existing_branch(repo):
         spawn.create_worktree(str(repo), 'feat/x')
     with pytest.raises(ValueError):
         spawn.create_worktree(str(repo.parent), 'nope')
+
+
+def _claude_config(tmp_path, monkeypatch, projects):
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    config = tmp_path / 'home' / '.claude.json'
+    config.parent.mkdir()
+    config.write_text(json.dumps({'other': 1, 'projects': projects}))
+    return config
+
+
+def test_worktree_inherits_trust_from_trusted_repo(repo, tmp_path, monkeypatch):
+    top = str(repo.resolve())
+    config = _claude_config(tmp_path, monkeypatch, {top: {'hasTrustDialogAccepted': True, 'x': 1}, '/o': {}})
+    path = spawn.create_worktree(top, 'feat/t')
+    data = json.loads(config.read_text())
+    assert data['projects'][path] == {'hasTrustDialogAccepted': True}
+    assert data['projects'][top]['x'] == 1 and data['projects']['/o'] == {} and data['other'] == 1
+
+
+def test_worktree_inherits_trust_when_spawned_from_another_worktree(repo, tmp_path, monkeypatch):
+    config = _claude_config(tmp_path, monkeypatch, {str(repo.resolve()): {'hasTrustDialogAccepted': True}})
+    first = spawn.create_worktree(str(repo), 'feat/a')
+    second = spawn.create_worktree(first, 'feat/b')
+    assert json.loads(config.read_text())['projects'][second] == {'hasTrustDialogAccepted': True}
+
+
+def test_worktree_does_not_inherit_without_trust(repo, tmp_path, monkeypatch):
+    config = _claude_config(tmp_path, monkeypatch, {str(repo.resolve()): {'hasTrustDialogAccepted': False}})
+    before = config.read_text()
+    spawn.create_worktree(str(repo), 'feat/u')
+    assert config.read_text() == before
+
+
+@pytest.mark.parametrize('kind', ['missing', 'invalid', 'symlink'])
+def test_worktree_trust_skips_unusable_config(repo, tmp_path, monkeypatch, kind):
+    config = _claude_config(tmp_path, monkeypatch, {str(repo.resolve()): {'hasTrustDialogAccepted': True}})
+    if kind == 'missing':
+        config.unlink()
+    elif kind == 'invalid':
+        config.write_text('{nope')
+    else:
+        real = tmp_path / 'real.json'
+        real.write_text(config.read_text())
+        config.unlink()
+        config.symlink_to(real)
+        config = real
+    before = config.read_text() if config.exists() else None
+    assert Path(spawn.create_worktree(str(repo), 'feat/v')).is_dir()
+    assert (config.read_text() if config.exists() else None) == before
 
 
 @pytest_asyncio.fixture
