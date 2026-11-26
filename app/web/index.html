@@ -78,7 +78,7 @@ function card(s) {
   addField(dl,'Folder',(s.folders||[]).join('\n')||'Unknown','Active agent working directories; otherwise configured session startup directory.');
   addField(dl,'Repository',(s.repositories||[]).map(r=>r.name+' — '+r.path).join('\n')||'Not detected');li.append(dl);
   addField(dl,'Environment',s.environment+' · '+s.connection);
-  if(s.resume&&s.connection!=='connected') addField(dl,'Resume','Available ('+s.resume.agent+(s.resume.updated_at?', last active '+new Date(s.resume.updated_at*1000).toLocaleString():'')+'). Reconnect, then press ENTER in the main pane.');
+  if(s.resume&&s.connection!=='connected') addField(dl,'Resume','Available ('+s.resume.agent+(s.resume.updated_at?', last active '+new Date(s.resume.updated_at*1000).toLocaleString():'')+'). Reconnect resumes it.');
   const footer=el('footer');footer.append(link(viewUrl(s.name),'Open session'),link(`/s/${s.port-C.portStart}/`,'Raw terminal'));
   if(s.connection!=='connected') {const reconnect=el('button','Reconnect'); reconnect.onclick=async()=>{reconnect.disabled=true;try{const r=await fetch('/api/sessions/'+encodeURIComponent(s.name)+'/reconnect',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!r.ok)throw new Error((await r.json()).error);await refresh();}catch(e){document.getElementById('error').textContent=e.message;}finally{reconnect.disabled=false;}};footer.append(reconnect);}
   const del=el('button','Kill','danger');del.onclick=async()=>{

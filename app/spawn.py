@@ -142,8 +142,7 @@ def _kdl(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def layout(cwd, script, suspended=False):
-    """Default tab layout; `suspended` shows the agent command and waits for ENTER."""
+def layout(cwd, script):
     return """layout {
     default_tab_template {
         pane size=1 borderless=true {
@@ -157,7 +156,7 @@ def layout(cwd, script, suspended=False):
     tab name="main" {
         pane split_direction="vertical" {
             pane size="70%%" command="sh" cwd=%s {
-                args "-c" %s%s
+                args "-c" %s
             }
             pane split_direction="horizontal" size="30%%" {
                 pane
@@ -169,7 +168,7 @@ def layout(cwd, script, suspended=False):
         }
     }
 }
-""" % (_kdl(cwd), _kdl(script), "\n                start_suspended true" if suspended else "")
+""" % (_kdl(cwd), _kdl(script))
 
 
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
@@ -180,7 +179,8 @@ def resume_script(resume):
     """Shell for the main pane that continues the remembered conversation, or None.
 
     Everything inlined is validated here, since resume.json is plain data on disk.
-    The pane starts suspended, so nothing runs until the user presses ENTER.
+    `--resume` only reopens the conversation and sends no prompt, so the pane runs it
+    straight away; a failure drops to a shell with a hint.
     """
     agent, sid = resume.get("agent"), resume.get("session_id")
     if agent not in AGENTS or not isinstance(sid, str) or not UUID_RE.match(sid):
@@ -252,7 +252,7 @@ def terminal_command(name, layout_file):
 
 
 def _reconnect_layout(name, default_layout):
-    """The default layout, or one whose main pane offers (suspended) to resume the last conversation."""
+    """The default layout, or one whose main pane resumes the last conversation."""
     resume = store.read_resume(name)
     script = resume_script(resume) if resume else None
     if not script:
@@ -260,8 +260,29 @@ def _reconnect_layout(name, default_layout):
     cwd = resume.get("cwd")
     cwd = cwd if isinstance(cwd, str) and os.path.isdir(cwd) else os.getcwd()
     path = Path(store.session_dir(name)) / "resume-layout.kdl"
-    path.write_text(layout(cwd, script, suspended=True))
+    path.write_text(layout(cwd, script))
     return path
+
+
+def default_layout():
+    bundled = ROOT / "layout.kdl"  # remote helper bundle keeps the layout beside the code
+    return bundled if bundled.is_file() else ROOT.parent / "config/layout.kdl"
+
+
+def restore_session(name, cwd):
+    """Recreate a stopped session without a client: resume layout if there is a record, else default.
+
+    Used on server startup, so sessions survive a restart without anyone opening them.
+    A session that is still live is left alone.
+    """
+    if name in live_sessions():
+        return
+    subprocess.run(["zellij", "delete-session", name], capture_output=True, text=True)
+    env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh",
+           "BROWSER": str(ROOT / "bin/devbox-open")}
+    env["PATH"] = str(ROOT / "bin") + ":" + env.get("PATH", "")
+    color_env(env)
+    _create_detached(name, cwd, _reconnect_layout(name, default_layout()), env)
 
 
 def start_agent(name, cwd, spec, prompt):

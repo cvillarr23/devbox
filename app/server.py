@@ -366,10 +366,12 @@ async def doctor(request):
 async def lifecycle(app):
     app['client'] = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None, sock_connect=10))
     task = asyncio.create_task(app['runtime'].poll())
+    restore = asyncio.create_task(app['runtime'].restore())
     yield
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+    for pending in (restore, task):
+        pending.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await pending
     await app['runtime'].close()
     await app['client'].close()
 

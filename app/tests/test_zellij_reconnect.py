@@ -62,13 +62,13 @@ def _resume(monkeypatch, tmp_path, **fields):
     monkeypatch.setattr(subprocess, 'run', _fake_zellij([]))
 
 
-def test_exited_session_offers_suspended_claude_resume(monkeypatch, tmp_path):
+def test_exited_session_resumes_claude_immediately(monkeypatch, tmp_path):
     _resume(monkeypatch, tmp_path)
     layout = Path(spawn.terminal_command('stale', '/layout.kdl')[-3])
     text = layout.read_text()
     assert layout.name == 'resume-layout.kdl'
     assert 'claude --resume %s --model opus --permission-mode plan' % UUID in text
-    assert 'start_suspended true' in text
+    assert 'start_suspended' not in text.split('htop')[0]
     assert 'initial prompt' not in text and 'prompt.md' not in text
 
 
@@ -102,3 +102,17 @@ def test_hook_records_resume_for_primary_agent_only(monkeypatch, tmp_path):
     assert store.read_resume('s')['model'] == 'sonnet'
     store.record_agent_event('s', '1', 'claude', {**event, 'hook_event_name': 'SessionEnd'}, 1)
     assert store.read_resume('s')['session_id'] == UUID
+
+
+def test_restore_session_recreates_with_resume_layout(monkeypatch, tmp_path):
+    _resume(monkeypatch, tmp_path)
+    made = []
+    monkeypatch.setattr(spawn, '_create_detached', lambda name, cwd, layout, env: made.append((name, cwd, Path(layout).name)))
+    spawn.restore_session('stale', str(tmp_path))
+    assert made == [('stale', str(tmp_path), 'resume-layout.kdl')]
+
+
+def test_restore_session_leaves_live_session_alone(monkeypatch):
+    monkeypatch.setattr(subprocess, 'run', _fake_zellij([]))
+    monkeypatch.setattr(spawn, '_create_detached', lambda *a: (_ for _ in ()).throw(AssertionError('recreated')))
+    spawn.restore_session('live', '/')
