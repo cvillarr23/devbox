@@ -12,6 +12,8 @@ Running processes don't persist: terminals, agents, Chrome and port forwards end
 
 If a session's working directory was deleted (for example its worktree was removed after a merge), attaching starts in the nearest existing parent directory, else `$HOME`, and prints a one-line notice; the session list marks such local sessions with `cwd_missing: true`.
 
+What survives is files: notes, worktrees, and `sessions/<name>/resume.json`, which the agent hooks keep up to date with the last Claude or Codex conversation (session id, model, permission mode, cwd). When that record exists, Reconnect puts the resume command in the main pane **suspended**: `claude --resume <id> --model … --permission-mode …` or `codex resume <id>`. It waits for ENTER, so nothing runs by itself and the initial prompt is never replayed. If the resume fails (expired or missing conversation) the pane drops to a shell with a hint (`claude --resume` with no id opens the picker). With no record, Reconnect gives the plain default layout. The dashboard card shows "Resume" for a stopped session that has one. For a spawned session only the spawned agent is remembered; otherwise the last agent to report wins.
+
 ## Sizing
 
 Home and state are small: tens of MB, plus Chrome profiles and agent homes. Projects grow with every clone and worktree. Projects get their own 40Gi `devbox-workspace` volume, so a full workspace can't break logins or session state. Projects and home are also backed up as separate archives.

@@ -230,7 +230,8 @@ def public_entry(rt, name):
     return {**{k: entry[k] for k in ('name', 'port', 'environment', 'connection')},
             **meta, **details, 'status': status['state'], 'unread': status.get('unread', 0),
             **({'view_url': view_url} if view_url else {}),
-            **({'cwd_missing': True} if entry['target']['type'] == 'local' and not os.path.isdir(entry['cwd']) else {})}
+            **({'cwd_missing': True} if entry['target']['type'] == 'local' and not os.path.isdir(entry['cwd']) else {}),
+            **({'resume': status['resume']} if status.get('resume') else {})}
 
 
 async def session(request):

@@ -142,7 +142,8 @@ def _kdl(text):
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def layout(cwd, script):
+def layout(cwd, script, suspended=False):
+    """Default tab layout; `suspended` shows the agent command and waits for ENTER."""
     return """layout {
     default_tab_template {
         pane size=1 borderless=true {
@@ -156,7 +157,7 @@ def layout(cwd, script):
     tab name="main" {
         pane split_direction="vertical" {
             pane size="70%%" command="sh" cwd=%s {
-                args "-c" %s
+                args "-c" %s%s
             }
             pane split_direction="horizontal" size="30%%" {
                 pane
@@ -168,7 +169,33 @@ def layout(cwd, script):
         }
     }
 }
-""" % (_kdl(cwd), _kdl(script))
+""" % (_kdl(cwd), _kdl(script), "\n                start_suspended true" if suspended else "")
+
+
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+RESUME_HINT = "Could not resume; run '%s' to pick a conversation."
+
+
+def resume_script(resume):
+    """Shell for the main pane that continues the remembered conversation, or None.
+
+    Everything inlined is validated here, since resume.json is plain data on disk.
+    The pane starts suspended, so nothing runs until the user presses ENTER.
+    """
+    agent, sid = resume.get("agent"), resume.get("session_id")
+    if agent not in AGENTS or not isinstance(sid, str) or not UUID_RE.match(sid):
+        return None
+    model, mode = resume.get("model"), resume.get("permission_mode")
+    model = model if isinstance(model, str) and CODEX_MODEL_RE.match(model) else ""
+    if agent == "claude":
+        command = ["claude", "--resume", sid]
+        command += ["--model", model] if model else []
+        command += ["--permission-mode", mode] if mode in PERMISSION_MODES else []
+        picker = "claude --resume"
+    else:
+        command = ["codex", "resume"] + (["-m", model] if model else []) + [sid]
+        picker = "codex resume"
+    return '%s || echo %s; exec "${SHELL:-sh}"' % (" ".join(command), _sh_quote(RESUME_HINT % picker))
 
 
 def enter_cwd(cwd):
@@ -221,7 +248,20 @@ def terminal_command(name, layout_file):
     if name in live_sessions():
         return command + ["attach", name]
     subprocess.run(["zellij", "delete-session", name], capture_output=True, text=True)
-    return command + ["--new-session-with-layout", str(layout_file), "--session", name]
+    return command + ["--new-session-with-layout", str(_reconnect_layout(name, layout_file)), "--session", name]
+
+
+def _reconnect_layout(name, default_layout):
+    """The default layout, or one whose main pane offers (suspended) to resume the last conversation."""
+    resume = store.read_resume(name)
+    script = resume_script(resume) if resume else None
+    if not script:
+        return default_layout
+    cwd = resume.get("cwd")
+    cwd = cwd if isinstance(cwd, str) and os.path.isdir(cwd) else os.getcwd()
+    path = Path(store.session_dir(name)) / "resume-layout.kdl"
+    path.write_text(layout(cwd, script, suspended=True))
+    return path
 
 
 def start_agent(name, cwd, spec, prompt):
@@ -230,6 +270,7 @@ def start_agent(name, cwd, spec, prompt):
     folder.mkdir(parents=True, exist_ok=True)
     prompt_file = folder / "prompt.md"
     prompt_file.write_text(prompt)
+    store.write_spawn(name, spec)
     layout_file = folder / "spawn-layout.kdl"
     layout_file.write_text(layout(cwd, agent_script(spec["agent"], spec["model"], spec["permission_mode"], str(prompt_file))))
     env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh"}
