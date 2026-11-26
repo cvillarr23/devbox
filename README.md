@@ -77,7 +77,7 @@ kubectl -n devbox-trial port-forward service/devbox 17860:7680
 
 Open <http://localhost:17860>. The manifests use one replica, a 20Gi ReadWriteOnce PVC for home and state, a 40Gi one for `/workspace`, a ClusterIP Service, health probes, and a memory-backed `/dev/shm`. Customize storage, resources, and environment configuration with Kustomize. The default ServiceAccount token is not mounted.
 
-A container or pod replacement ends local processes. Project files, notes, browser profile, and session definitions persist; use **Reconnect** to start a new terminal. Reconnect never replays previous shell commands.
+A container or pod replacement ends local processes. Project files, notes, browser profile, and session definitions persist; open the session page (it reconnects automatically, unless turned off in its settings) or use **Reconnect** to start a new terminal. Reconnect never replays previous shell commands.
 
 Back up, restore, upgrade and roll back as described in [docs/operations.md](docs/operations.md).
 
