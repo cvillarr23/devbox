@@ -90,6 +90,13 @@ def test_worktree_inherits_trust_from_trusted_repo(repo, tmp_path, monkeypatch):
     assert data['projects'][top]['x'] == 1 and data['projects']['/o'] == {} and data['other'] == 1
 
 
+def test_worktree_inherits_trust_when_spawned_from_another_worktree(repo, tmp_path, monkeypatch):
+    config = _claude_config(tmp_path, monkeypatch, {str(repo.resolve()): {'hasTrustDialogAccepted': True}})
+    first = spawn.create_worktree(str(repo), 'feat/a')
+    second = spawn.create_worktree(first, 'feat/b')
+    assert json.loads(config.read_text())['projects'][second] == {'hasTrustDialogAccepted': True}
+
+
 def test_worktree_does_not_inherit_without_trust(repo, tmp_path, monkeypatch):
     config = _claude_config(tmp_path, monkeypatch, {str(repo.resolve()): {'hasTrustDialogAccepted': False}})
     before = config.read_text()

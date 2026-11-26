@@ -113,12 +113,13 @@ def create_worktree(cwd, branch):
         raise ValueError("worktree path already exists: " + path)
     exists = subprocess.run(["git", "-C", top, "show-ref", "--verify", "--quiet", "refs/heads/" + branch]).returncode == 0
     _git(top, "worktree", "add", *(() if exists else ("-b", branch)), path, *((branch,) if exists else ()))
-    inherit_folder_trust(top, path)
+    common = _git(top, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()
+    inherit_folder_trust((top, str(Path(common).parent)), path)
     return path
 
 
-def inherit_folder_trust(repo, path):
-    """Mark a new worktree trusted for Claude when its repo already is, so the child skips the trust dialog.
+def inherit_folder_trust(repos, path):
+    """Mark a new worktree trusted for Claude when its repo (checkout or main worktree) already is, so the child skips the trust dialog.
 
     Never blanket trust: an untrusted repo still prompts. A missing, unparsable or
     symlinked ~/.claude.json is left alone, and failures never fail the spawn.
@@ -129,8 +130,9 @@ def inherit_folder_trust(repo, path):
             return
         content = json.loads(config.read_text())
         projects = content.get("projects")
-        if not isinstance(projects, dict) or not isinstance(projects.get(repo), dict) \
-                or projects[repo].get("hasTrustDialogAccepted") is not True:
+        if not isinstance(projects, dict) or not any(
+                isinstance(projects.get(r), dict) and projects[r].get("hasTrustDialogAccepted") is True
+                for r in repos):
             return
         entry = projects.get(path)
         if isinstance(entry, dict) and entry.get("hasTrustDialogAccepted") is True:
