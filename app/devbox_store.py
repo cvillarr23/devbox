@@ -364,8 +364,50 @@ def record_agent_event(name, pane, agent, payload, pid):
             "cwd": payload.get("cwd", "") if isinstance(payload.get("cwd", ""), str) else "",
         }
         _atomic_write(path, json.dumps(entry) + "\n")
+        _write_resume(name, entry, payload)
     if entry["session_id"]:
         _drop_elsewhere(entry["session_id"], path)
+
+
+def _text(value):
+    return value if isinstance(value, str) else ""
+
+
+def _write_resume(name, entry, payload):
+    """Remember the conversation to offer on Reconnect; caller holds the lock.
+
+    Unlike the pane records this is never pruned with the agent's PID. A session
+    spawned with an agent only remembers that agent (spawn.json); any other session
+    remembers whichever agent spoke last.
+    """
+    if not entry["session_id"]:
+        return
+    spawned = json.loads(_read(os.path.join(session_dir(name), "spawn.json")) or "{}")
+    if spawned.get("agent") and spawned["agent"] != entry["agent"]:
+        return
+    _atomic_write(os.path.join(session_dir(name), "resume.json"), json.dumps({
+        "agent": entry["agent"], "session_id": entry["session_id"],
+        "model": _text(spawned.get("model")) or _text(payload.get("model")),
+        "permission_mode": _text(spawned.get("permission_mode")) or _text(payload.get("permission_mode")),
+        "cwd": entry["cwd"], "updated_at": entry["updated_at"]}) + "\n")
+
+
+def write_spawn(name, spec):
+    """Record what spawn launched so hooks know which agent is the session's primary one."""
+    with _locked(name):
+        _atomic_write(os.path.join(session_dir(name), "spawn.json"), json.dumps(
+            {k: spec.get(k, "") for k in ("agent", "model", "permission_mode")}) + "\n")
+
+
+def read_resume(name):
+    """The remembered conversation (dict with a session_id), or None."""
+    try:
+        resume = json.loads(_read(os.path.join(session_dir(name), "resume.json")) or "{}")
+    except ValueError:
+        return None
+    if isinstance(resume, dict) and resume.get("agent") in AGENTS and _text(resume.get("session_id")):
+        return resume
+    return None
 
 
 def session_status(name):
@@ -417,6 +459,7 @@ def session_status(name):
                 os.makedirs(adir, exist_ok=True)
                 _hand_to_owner(adir)
                 _atomic_write(os.path.join(adir, process["pane"] + ".json"), json.dumps(entry) + "\n")
+                _write_resume(name, entry, {})
         agents = [a for a in agents if a["pane"] != process["pane"] or a["agent"] != "codex"] + [entry]
     known = {(a["pane"], a["agent"]) for a in agents}
     agents.extend(a for a in agent_process.presence(name) if (a["pane"], a["agent"]) not in known)
@@ -426,7 +469,9 @@ def session_status(name):
         return "idle" if a["state"] == "done" and a.get("acked") else a["state"]
 
     state = max((effective(a) for a in agents), key=STATE_PRIORITY.get, default="idle")
-    return {"state": state, "agents": agents}
+    resume = read_resume(name)
+    return {"state": state, "agents": agents,
+            **({"resume": {"agent": resume["agent"], "updated_at": resume.get("updated_at")}} if resume else {})}
 
 
 def ack_done(name):

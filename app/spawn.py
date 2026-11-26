@@ -171,14 +171,47 @@ def layout(cwd, script):
 """ % (_kdl(cwd), _kdl(script))
 
 
-def enter_cwd(cwd):
-    """chdir to cwd, or its nearest existing parent, else $HOME, with a one-line notice."""
+UUID_RE = re.compile(r"^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+RESUME_HINT = "Could not resume; run '%s' to pick a conversation."
+
+
+def resume_script(resume):
+    """Shell for the main pane that continues the remembered conversation, or None.
+
+    Everything inlined is validated here, since resume.json is plain data on disk.
+    `--resume` only reopens the conversation and sends no prompt, so the pane runs it
+    straight away; a failure drops to a shell with a hint.
+    """
+    agent, sid = resume.get("agent"), resume.get("session_id")
+    if agent not in AGENTS or not isinstance(sid, str) or not UUID_RE.match(sid):
+        return None
+    model, mode = resume.get("model"), resume.get("permission_mode")
+    model = model if isinstance(model, str) and CODEX_MODEL_RE.match(model) else ""
+    if agent == "claude":
+        command = ["claude", "--resume", sid]
+        command += ["--model", model] if model else []
+        command += ["--permission-mode", mode] if mode in PERMISSION_MODES else []
+        picker = "claude --resume"
+    else:
+        command = ["codex", "resume"] + (["-m", model] if model else []) + [sid]
+        picker = "codex resume"
+    return '%s || echo %s; exec "${SHELL:-sh}"' % (" ".join(command), _sh_quote(RESUME_HINT % picker))
+
+
+def existing_dir(cwd):
+    """(cwd as given, cwd or its nearest existing parent, else $HOME)."""
     cwd = os.path.expanduser(cwd) if cwd else str(Path.home())
     target = Path(cwd)
     while not target.is_dir() and target != target.parent:
         target = target.parent
     if not target.is_absolute() or not target.is_dir():
         target = Path.home()
+    return cwd, target
+
+
+def enter_cwd(cwd):
+    """chdir to cwd, or its nearest existing parent, else $HOME, with a one-line notice."""
+    cwd, target = existing_dir(cwd)
     os.chdir(target)
     if str(target) != cwd:
         print(f'devbox: {cwd} no longer exists; starting in {target}', flush=True)
@@ -221,7 +254,41 @@ def terminal_command(name, layout_file):
     if name in live_sessions():
         return command + ["attach", name]
     subprocess.run(["zellij", "delete-session", name], capture_output=True, text=True)
-    return command + ["--new-session-with-layout", str(layout_file), "--session", name]
+    return command + ["--new-session-with-layout", str(_reconnect_layout(name, layout_file)), "--session", name]
+
+
+def _reconnect_layout(name, default_layout):
+    """The default layout, or one whose main pane resumes the last conversation."""
+    resume = store.read_resume(name)
+    script = resume_script(resume) if resume else None
+    if not script:
+        return default_layout
+    cwd = resume.get("cwd")
+    cwd = str(existing_dir(cwd)[1]) if isinstance(cwd, str) and cwd else os.getcwd()
+    path = Path(store.session_dir(name)) / "resume-layout.kdl"
+    path.write_text(layout(cwd, script))
+    return path
+
+
+def default_layout():
+    bundled = ROOT / "layout.kdl"  # remote helper bundle keeps the layout beside the code
+    return bundled if bundled.is_file() else ROOT.parent / "config/layout.kdl"
+
+
+def restore_session(name, cwd):
+    """Recreate a stopped session without a client: resume layout if there is a record, else default.
+
+    Used on server startup, so sessions survive a restart without anyone opening them.
+    A session that is still live is left alone.
+    """
+    if name in live_sessions():
+        return
+    subprocess.run(["zellij", "delete-session", name], capture_output=True, text=True)
+    env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh",
+           "BROWSER": str(ROOT / "bin/devbox-open")}
+    env["PATH"] = str(ROOT / "bin") + ":" + env.get("PATH", "")
+    color_env(env)
+    _create_detached(name, cwd, _reconnect_layout(name, default_layout()), env)
 
 
 def start_agent(name, cwd, spec, prompt):
@@ -230,6 +297,7 @@ def start_agent(name, cwd, spec, prompt):
     folder.mkdir(parents=True, exist_ok=True)
     prompt_file = folder / "prompt.md"
     prompt_file.write_text(prompt)
+    store.write_spawn(name, spec)
     layout_file = folder / "spawn-layout.kdl"
     layout_file.write_text(layout(cwd, agent_script(spec["agent"], spec["model"], spec["permission_mode"], str(prompt_file))))
     env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh"}

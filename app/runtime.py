@@ -65,8 +65,12 @@ class Runtime:
         self.path = Path(store.state_dir()) / 'runtime.json'
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.sessions = json.loads(self.path.read_text()) if self.path.exists() else {}
+        # Connected when the last server stopped (or died): recreated by restore().
+        self.to_restore = [n for n, e in self.sessions.items()
+                           if e.get('restore') or e.get('connection') == 'connected']
         for entry in self.sessions.values():
             entry['connection'] = 'stopped'
+            entry['restore'] = False
         self.children = {}
         self.remotes = {}
         self.remote_states = {}
@@ -139,6 +143,25 @@ class Runtime:
                 entry['connection'] = 'failed'
                 self.save()
                 raise
+
+    async def restore(self):
+        """Bring back every local session that was connected before the restart.
+
+        The zellij session is created here (resuming the last conversation when
+        there is one), so no dashboard click or open page is needed. Remote targets
+        stay stopped; their Reconnect needs the control connection.
+        """
+        for name in self.to_restore:
+            entry = self.sessions.get(name)
+            if not entry or entry['target']['type'] != 'local':
+                continue
+            try:
+                cwd = str(child_session.existing_dir(entry['cwd'])[1])  # a removed worktree must not block restore
+                await self.ensure(name, entry['environment'], cwd)
+                await asyncio.to_thread(child_session.restore_session, name, cwd)
+            except Exception as exc:
+                print('Could not restore session %s: %s' % (name, exc), flush=True)
+        self.to_restore = []
 
     async def close_forwards(self, name):
         for ident, item in list(self.forwards.items()):
@@ -404,5 +427,7 @@ class Runtime:
 
     async def close(self):
         await self.browser.stop()
+        for entry in self.sessions.values():
+            entry['restore'] = entry['connection'] == 'connected'
         for name in list(self.children):
             await self.disconnect(name)

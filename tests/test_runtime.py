@@ -64,6 +64,36 @@ async def test_restart_does_not_resume_processes(state):
     restored = runtime.Runtime()
     assert restored.sessions['one']['connection'] == 'stopped'
     assert restored.children == {}
+    assert restored.to_restore == ['one']
+
+
+@pytest.mark.asyncio
+async def test_restore_recreates_local_sessions_only(state, monkeypatch):
+    rt = runtime.Runtime()
+    for name, kind in (('one', 'local'), ('two', 'remote')):
+        rt.sessions[name] = {'name': name, 'port': 7690, 'connection': 'connected', 'environment': kind,
+                             'target': {'type': kind}, 'cwd': str(state), 'started_at': 1}
+    rt.save()
+    restored = runtime.Runtime()
+    calls = []
+
+    async def ensure(name, target, cwd):
+        calls.append(('ensure', name))
+    monkeypatch.setattr(restored, 'ensure', ensure)
+    monkeypatch.setattr(runtime.child_session, 'restore_session', lambda name, cwd: calls.append(('zellij', name)))
+    await restored.restore()
+    assert calls == [('ensure', 'one'), ('zellij', 'one')]
+    assert restored.to_restore == []
+
+
+@pytest.mark.asyncio
+async def test_graceful_shutdown_marks_connected_sessions_for_restore(state):
+    rt = runtime.Runtime()
+    rt.sessions['one'] = {'name': 'one', 'port': 7690, 'connection': 'connected', 'environment': 'local', 'target': {'type': 'local'}, 'cwd': str(state), 'started_at': 1}
+    rt.sessions['two'] = {**rt.sessions['one'], 'name': 'two', 'connection': 'disconnected'}
+    await rt.close()
+    rt.save()
+    assert runtime.Runtime().to_restore == ['one']
 
 
 @pytest.mark.asyncio
