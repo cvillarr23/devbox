@@ -231,3 +231,48 @@ def test_start_agent_launches_zellij_with_color_env(monkeypatch, tmp_path):
     monkeypatch.setattr(spawn, '_create_detached', lambda name, cwd, layout_file, env: seen.update(env))
     spawn.start_agent('s', str(tmp_path), {'agent': 'claude', 'model': 'opus', 'permission_mode': 'auto'}, 'p')
     assert seen['TERM'] == 'xterm-256color' and seen['COLORTERM'] == 'truecolor'
+
+
+UUID = '0b7f3c52-8a1e-4d2b-9c61-5e4f7a8b9c10'
+
+
+@pytest.mark.parametrize('agent,levels,flag', [
+    ('claude', ('low', 'medium', 'high', 'xhigh', 'max'), '--effort %s'),
+    ('codex', ('minimal', 'low', 'medium', 'high', 'xhigh'), '-c model_reasoning_effort=%s')])
+def test_effort_builds_flag_per_agent(agent, levels, flag):
+    for level in levels:
+        assert spawn.plan({'agent': agent, 'effort': level})['effort'] == level
+        script = spawn.agent_script(agent, '', '', '/p.md', level)
+        assert script.startswith('%s %s -- ' % (agent, flag % level))
+
+
+def test_effort_unset_changes_nothing():
+    assert spawn.plan({})['effort'] == ''
+    assert spawn.agent_script('claude', 'sonnet', 'plan', '/p.md') == spawn.agent_script(
+        'claude', 'sonnet', 'plan', '/p.md', '')
+    assert '--effort' not in spawn.agent_script('claude', '', '', '/p.md', '')
+    assert 'reasoning' not in spawn.agent_script('codex', '', '', '/p.md', '')
+
+
+@pytest.mark.parametrize('agent,level', [('claude', 'minimal'), ('codex', 'max'), ('claude', 'high; rm -rf /'),
+                                         ('codex', 'low $(x)')])
+def test_invalid_effort_rejected(agent, level):
+    with pytest.raises(ValueError, match='effort must be one of'):
+        spawn.plan({'agent': agent, 'effort': level})
+    assert spawn.agent_script(agent, '', '', '/p.md', level).startswith(agent + ' -- ')
+
+
+def test_effort_carried_into_resume(monkeypatch, tmp_path):
+    monkeypatch.setenv('DEVBOX_STATE_DIR', str(tmp_path))
+    store.write_spawn('s', {'agent': 'claude', 'effort': 'high'})
+    assert json.loads((tmp_path / 'sessions/s/spawn.json').read_text())['effort'] == 'high'
+    event = {'hook_event_name': 'Stop', 'session_id': UUID, 'cwd': '/w', 'permission_mode': 'default'}
+    store.record_agent_event('s', '1', 'claude', event, 1)
+    resume = store.read_resume('s')
+    assert resume['effort'] == 'high'
+    assert '--effort high' in spawn.resume_script(resume)
+    codex = spawn.resume_script({'agent': 'codex', 'session_id': UUID, 'effort': 'low'})
+    assert codex == 'codex resume -c model_reasoning_effort=low %s || echo %s; exec "${SHELL:-sh}"' % (
+        UUID, spawn._sh_quote(spawn.RESUME_HINT % 'codex resume'))
+    assert '--effort' not in spawn.resume_script({**resume, 'effort': 'bogus'})
+    assert '--effort' not in spawn.resume_script({**resume, 'effort': ''})

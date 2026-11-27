@@ -96,7 +96,7 @@ def with_view_url(result):
 def spawn_request(args):
     prompt = sys.stdin.read() if args.prompt == '-' else args.prompt
     fields = {'name': args.name, 'environment': args.environment, 'cwd': args.cwd, 'worktree': args.worktree,
-              'agent': args.agent, 'model': args.model, 'permission_mode': args.permission_mode, 'prompt': prompt,
+              'agent': args.agent, 'model': args.model, 'effort': args.effort, 'permission_mode': args.permission_mode, 'prompt': prompt,
               'origin_cwd': os.getcwd()}
     return {k: v for k, v in fields.items() if v}
 
@@ -357,6 +357,7 @@ def main():
         where.add_argument('--worktree', metavar='BRANCH', help='create a git worktree for BRANCH from the current repo')
         spawn.add_argument('--agent', choices=('claude', 'codex'))
         spawn.add_argument('--model')
+        spawn.add_argument('--effort', metavar='LEVEL', help='claude: low|medium|high|xhigh|max; codex: minimal|low|medium|high|xhigh')
         spawn.add_argument('--permission-mode', choices=('plan', 'auto'))
         spawn.add_argument('--prompt', metavar='TEXT|-', help='initial prompt; - reads stdin')
         spawn.add_argument('--json', action='store_true')

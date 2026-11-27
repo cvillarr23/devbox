@@ -17,6 +17,8 @@ import devbox_store as store
 ROOT = Path(__file__).resolve().parent
 AGENTS = ("claude", "codex")
 CLAUDE_MODELS = ("opus", "sonnet", "haiku")
+EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"),
+           "codex": ("minimal", "low", "medium", "high", "xhigh")}
 PERMISSION_MODES = ("plan", "auto")
 # Modes a resumed Claude is put back into: wider than what spawn offers, since the user
 # may have switched. bypassPermissions is left out so a restart never turns it back on.
@@ -32,6 +34,7 @@ def plan(args):
     if agent not in AGENTS:
         raise ValueError("agent must be one of: " + ", ".join(AGENTS))
     result = {"agent": agent, "model": _model(agent, args.get("model")),
+              "effort": effort(agent, args.get("effort")),
               "permission_mode": _permission_mode(agent, args.get("permission_mode")),
               "prompt": _prompt(args.get("prompt")), "worktree": _branch(args.get("worktree")),
               "cwd": args.get("cwd") or "", "environment": args.get("environment") or "local",
@@ -51,6 +54,22 @@ def _model(agent, model):
     if agent == "codex" and not CODEX_MODEL_RE.match(model):
         raise ValueError("invalid codex model name")
     return model
+
+
+def effort(agent, level):
+    """LEVEL if it is on AGENT's allow-list, "" if unset; anything else is an error."""
+    if not level:
+        return ""
+    if level not in EFFORTS[agent]:
+        raise ValueError("%s effort must be one of: %s" % (agent, ", ".join(EFFORTS[agent])))
+    return level
+
+
+def effort_args(agent, level):
+    """The command-line flag for a level already checked against the allow-list."""
+    if level not in EFFORTS.get(agent, ()):
+        return []
+    return ["--effort", level] if agent == "claude" else ["-c", "model_reasoning_effort=" + level]
 
 
 def _permission_mode(agent, mode):
@@ -155,13 +174,14 @@ def _git(cwd, *argv):
     return done.stdout
 
 
-def agent_script(agent, model, mode, prompt_file):
+def agent_script(agent, model, mode, prompt_file, level=""):
     """Shell run in the agent pane. Only validated tokens and a state-dir path are inlined."""
     parts = [agent]
     if model:
         parts += ["--model" if agent == "claude" else "-m", model]
     if mode:
         parts += ["--permission-mode", mode]
+    parts += effort_args(agent, level)
     command = " ".join(parts)
     # The prompt is read from a file so no prompt text is ever shell- or KDL-quoted.
     return '%s -- "$(cat %s)"; exec "${SHELL:-sh}"' % (command, _sh_quote(prompt_file))
@@ -220,13 +240,15 @@ def resume_script(resume):
         return None
     model, mode = resume.get("model"), resume.get("permission_mode")
     model = model if isinstance(model, str) and CODEX_MODEL_RE.match(model) else ""
+    level = effort_args(agent, resume.get("effort"))
     if agent == "claude":
         command = ["claude", "--resume", sid]
         command += ["--model", model] if model else []
         command += ["--permission-mode", mode] if mode in RESUME_PERMISSION_MODES else []
+        command += level
         picker = "claude --resume"
     else:
-        command = ["codex", "resume"] + (["-m", model] if model else []) + [sid]
+        command = ["codex", "resume"] + (["-m", model] if model else []) + level + [sid]
         picker = "codex resume"
     return '%s || echo %s; exec "${SHELL:-sh}"' % (" ".join(command), _sh_quote(RESUME_HINT % picker))
 
@@ -332,7 +354,7 @@ def start_agent(name, cwd, spec, prompt):
     prompt_file.write_text(prompt)
     store.write_spawn(name, spec)
     layout_file = folder / "spawn-layout.kdl"
-    layout_file.write_text(layout(cwd, agent_script(spec["agent"], spec["model"], spec["permission_mode"], str(prompt_file))))
+    layout_file.write_text(layout(cwd, agent_script(spec["agent"], spec["model"], spec["permission_mode"], str(prompt_file), spec.get("effort", ""))))
     env = {**os.environ, "DEVBOX_SESSION": name, "SHELL": os.environ.get("SHELL") or "/bin/zsh"}
     env["PATH"] = str(ROOT / "bin") + ":" + env.get("PATH", "")
     color_env(env)
