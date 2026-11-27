@@ -36,15 +36,25 @@ class Browser:
             command.append('--no-sandbox')
         return command
 
+    # Fixed desktop; the noVNC client scales it to the panel (resize=scale).
+    # Xvfb's RandR exposes a single mode, so x11vnc -xrandr cannot resize it.
+    SCREEN = '1440x900x24'
+
+    def xvfb_command(self):
+        return ['Xvfb', ':99', '-screen', '0', self.SCREEN, '-nolisten', 'tcp']
+
+    def x11vnc_command(self):
+        return ['x11vnc', '-display', ':99', '-localhost', '-rfbport', '5900', '-forever', '-shared', '-nopw']
+
     async def start(self):
         async with self.lock:
             if self.processes and all(p.returncode is None for p in self.processes):
                 return
             await self._stop()
             commands = [
-                ['Xvfb', ':99', '-screen', '0', '1440x900x24', '-nolisten', 'tcp'],
+                self.xvfb_command(),
                 ['openbox'],
-                ['x11vnc', '-display', ':99', '-localhost', '-rfbport', '5900', '-forever', '-shared', '-nopw'],
+                self.x11vnc_command(),
                 ['websockify', '--web', '/usr/share/novnc', '127.0.0.1:6080', '127.0.0.1:5900'],
                 [*self.chrome_command(), 'about:blank'],
             ]

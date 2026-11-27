@@ -142,3 +142,12 @@ async def test_remote_bootstrap_program_compiles(state, monkeypatch):
         assert 'agent_process.py' in tar.getnames()
         assert 'plugins/devbox/skills/devbox-browser/SKILL.md' in tar.getnames()
         assert {'messages.py', 'pane_input.py', 'plugins/devbox/skills/devbox-msg/SKILL.md', '.claude-plugin/marketplace.json'} <= set(tar.getnames())
+
+
+def test_browser_vnc_fits_whole_desktop():
+    b = Browser()
+    assert b.xvfb_command()[:5] == ['Xvfb', ':99', '-screen', '0', '1440x900x24']
+    assert '-xrandr' not in b.x11vnc_command()
+    js = (Path(__file__).parent.parent / 'app/web/browser-panel.js').read_text()
+    assert '/browser/vnc.html?autoconnect=true&resize=scale&path=browser/websockify' in js
+    assert 'resize=remote' not in js
