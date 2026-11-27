@@ -123,6 +123,25 @@ def run_spawn(args):
         print(result['url'])
 
 
+def run_kill(args):
+    """End sessions over the control socket; the server enforces the self guard."""
+    caller = current_session()['session']
+    data = {'names': args.names, 'self': args.self_, 'children': args.children}
+    if not args.names and not args.self_ and not args.children:
+        raise ValueError('Name a session to end, or use --self or --children')
+    if args.self_:
+        data['names'] = [*args.names, caller]
+    if args.children and not args.yes:
+        plan = invoke(caller, 'kill', {**data, 'dry_run': True})['would_end']
+        print('Will end: ' + ', '.join(plan))
+        if input('Continue? [y/N] ').strip().lower() not in ('y', 'yes'):
+            raise ValueError('Cancelled')
+    result = invoke(caller, 'kill', data)
+    for name in result['ended']:
+        print(f'ended {name}')
+    return result
+
+
 AUTH_URL_RE = re.compile(r'https?://\S+')
 
 
@@ -361,9 +380,17 @@ def main():
         spawn.add_argument('--permission-mode', choices=('plan', 'auto'))
         spawn.add_argument('--prompt', metavar='TEXT|-', help='initial prompt; - reads stdin')
         spawn.add_argument('--json', action='store_true')
+        kill = sub.add_parser('kill', help='end sessions: NAME..., --self, or --children (your finished children)')
+        kill.add_argument('names', nargs='*', metavar='NAME')
+        kill.add_argument('--self', dest='self_', action='store_true', help='end the calling session')
+        kill.add_argument('--children', action='store_true',
+                          help='end your children that are done or idle with no unread urgent messages')
+        kill.add_argument('--yes', action='store_true', help='skip the --children confirmation')
         args = parser.parse_args(sys.argv[2:])
         if args.command == 'spawn':
             return run_spawn(args)
+        if args.command == 'kill':
+            return run_kill(args)
         if args.command == 'doctor':
             result = run_doctor(args)
         elif args.command == 'forward':

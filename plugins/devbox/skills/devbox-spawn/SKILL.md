@@ -38,4 +38,4 @@ Spawn appends one line to the prompt naming you and how to reach you. The child 
 - `devbox msg inbox` shows questions and `done` reports from your children.
 - `devbox wait <child>... --state done` blocks until they finish, without polling.
 - Review the child's branch or PR yourself before reporting it done.
-- End finished children from the dashboard when you're done with them.
+- End finished children with `devbox kill NAME...`, or `devbox kill --children` for all of yours that are done or idle with no unread urgent messages (lists them and asks first; `--yes` skips the prompt). `devbox kill --self` ends your own session; without `--self` the calling session is refused. The MCP `session_kill` tool does the same but only for your own children and yourself. Exit code 0 only if every named session was ended.

@@ -151,3 +151,61 @@ def test_browser_vnc_fits_whole_desktop():
     js = (Path(__file__).parent.parent / 'app/web/browser-panel.js').read_text()
     assert '/browser/vnc.html?autoconnect=true&resize=scale&path=browser/websockify' in js
     assert 'resize=remote' not in js
+
+
+def _kill_runtime(state, states, links):
+    import devbox_store as store
+    rt = runtime.Runtime()
+    for name in ('pm', 'a', 'b', 'c', 'other'):
+        rt.sessions[name] = {'name': name, 'port': 1, 'connection': 'stopped', 'environment': 'local',
+                             'target': {'type': 'local'}, 'cwd': str(state), 'started_at': 1}
+        store.update_meta(name, {'parent': links[name]} if name in links else {})
+    rt.save()
+    rt.status = lambda n: {'state': states.get(n, 'working')}
+    rt.kill = AsyncMock()
+    return rt
+
+
+@pytest.mark.asyncio
+async def test_kill_guards_unknown_and_self(state):
+    rt = _kill_runtime(state, {}, {})
+    with pytest.raises(ValueError, match='--self'):
+        await rt.operation('pm', 'kill', {'names': ['pm']})
+    with pytest.raises(ValueError, match='Unknown session'):
+        await rt.operation('pm', 'kill', {'names': ['nope']})
+    rt.kill.assert_not_awaited()
+    assert (await rt.operation('pm', 'kill', {'names': ['other']})) == {'ended': ['other']}
+    rt.kill.assert_awaited_once_with('other')
+
+
+@pytest.mark.asyncio
+async def test_kill_self_replies_before_ending(state):
+    rt = _kill_runtime(state, {}, {})
+    result = await rt.operation('pm', 'kill', {'names': ['pm'], 'self': True, 'delay': 0})
+    assert result == {'ended': ['pm']}
+    rt.kill.assert_not_awaited()
+    await asyncio.gather(*rt._deferred) if rt._deferred else await asyncio.sleep(0.05)
+    await asyncio.sleep(0.05)
+    rt.kill.assert_awaited_once_with('pm')
+
+
+@pytest.mark.asyncio
+async def test_kill_children_filters_by_parent_and_state(state, monkeypatch):
+    import messages
+    rt = _kill_runtime(state, {'a': 'done', 'b': 'working', 'c': 'idle', 'other': 'done'},
+                       {'a': 'pm', 'b': 'pm', 'c': 'pm:2'})
+    monkeypatch.setattr(messages, 'pending', lambda n, pane, urgent_only=False: [1] if n == 'c' else [])
+    assert await rt.operation('pm', 'kill', {'children': True, 'dry_run': True}) == {'would_end': ['a']}
+    rt.kill.assert_not_awaited()
+    assert await rt.operation('pm', 'kill', {'children': True}) == {'ended': ['a']}
+    rt.kill.assert_awaited_once_with('a')
+
+
+@pytest.mark.asyncio
+async def test_kill_children_only_restriction(state):
+    rt = _kill_runtime(state, {}, {'a': 'pm'})
+    with pytest.raises(ValueError, match='not a child'):
+        await rt.operation('pm', 'kill', {'names': ['other'], 'children_only': True})
+    assert await rt.operation('pm', 'kill', {'names': ['a'], 'children_only': True}) == {'ended': ['a']}
+    assert (await rt.operation('pm', 'kill', {'names': ['pm'], 'self': True, 'children_only': True, 'delay': 0}))['ended'] == ['pm']
+    await asyncio.sleep(0.05)

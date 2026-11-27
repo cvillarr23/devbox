@@ -82,6 +82,7 @@ Detection tries these in order: the pane a Claude background job is attached fro
 | `open_url` | `devbox-open` |
 | `msg_send`, `msg_inbox` | `devbox msg send`, `inbox` (inbox does not acknowledge) |
 | `session_spawn` | `devbox spawn` |
+| `session_kill` | `devbox kill`, limited to your own children and yourself |
 
 Widget, todo, wait and delegated-control tools are not exposed yet.
 
@@ -112,6 +113,8 @@ A message gets one pointer line per pane per batch, never one per message. An id
 ## Spawning child sessions
 
 `devbox spawn [--name N] [--environment E] [--cwd DIR | --worktree BRANCH] [--agent claude|codex] [--model M] [--effort LEVEL] [--permission-mode plan|auto] [--prompt TEXT|-]` creates a session, optionally a git worktree beside the current repository, starts the agent with the prompt, and prints the child's name and URL. `--effort` is checked against a per-agent list (claude `--effort low|medium|high|xhigh|max`; codex `-c model_reasoning_effort=minimal|low|medium|high|xhigh`), is recorded in `spawn.json` and `resume.json`, and is passed again when a restart resumes the conversation; unset adds no flag. The child's `meta.json` records `parent: <session>[:<pane>]` from the detected session (never from an argument), and the dashboard API returns it as `parent`. The prompt gets one line naming the parent and how to message it. It works for local and managed environments; a worktree needs the child in the caller's own environment. The `devbox-spawn` skill covers when to spawn and how to brief a child.
+
+`devbox kill NAME... [--self] [--children] [--yes]` ends sessions through the control socket (the runtime's `kill`: zellij `delete-session`, disconnect, archive the session directory). The server refuses the calling session without `--self` and unknown sessions; `--children` ends only the caller's children that are done or idle with no unread urgent messages, listing them and asking unless `--yes`. `--self` replies first, then ends the session. Exit code 0 only if every named session was ended.
 
 ## Loopback OIDC logins (`devbox auth-relay`)
 

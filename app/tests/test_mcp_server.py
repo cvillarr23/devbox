@@ -13,7 +13,7 @@ sys.path.insert(0, APP)
 
 import mcp_server  # noqa: E402
 
-PHASE_1 = {'notes_read', 'notes_append', 'open_url', 'msg_send', 'msg_inbox', 'session_spawn'}
+PHASE_1 = {'notes_read', 'notes_append', 'open_url', 'msg_send', 'msg_inbox', 'session_spawn', 'session_kill'}
 
 
 class FakeControl(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
@@ -177,3 +177,11 @@ def test_session_spawn_schema_has_effort_enum(tmp_path):
     _, listed = run_server([rpc(1, 'initialize', protocolVersion='2025-03-26'), rpc(2, 'tools/list')], tmp_path)
     tool = next(t for t in listed['result']['tools'] if t['name'] == 'session_spawn')
     assert tool['inputSchema']['properties']['effort']['enum'] == ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+
+def test_session_kill_sends_restricted_request(tmp_path, control):
+    (r1, r2, r3) = run_server([call(1, 'session_kill', names=['kid']), call(2, 'session_kill', names=['s1']),
+                               call(3, 'session_kill', names=[])], tmp_path, socket=control.server_address)
+    assert not r1['result']['isError'] and not r2['result']['isError'] and r3['result']['isError']
+    assert control.requests[0] == ('/api/sessions/s1/kill', {'names': ['kid'], 'self': False, 'children_only': True})
+    assert control.requests[1][1]['self'] is True and control.requests[1][1]['children_only'] is True
