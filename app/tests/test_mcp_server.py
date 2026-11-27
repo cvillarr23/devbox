@@ -171,3 +171,9 @@ def test_protocol_errors(tmp_path):
     assert responses[1]['error']['code'] == -32601
     assert responses[2]['error']['code'] == -32602
     assert responses[3]['error']['code'] == -32602
+
+
+def test_session_spawn_schema_has_effort_enum(tmp_path):
+    _, listed = run_server([rpc(1, 'initialize', protocolVersion='2025-03-26'), rpc(2, 'tools/list')], tmp_path)
+    tool = next(t for t in listed['result']['tools'] if t['name'] == 'session_spawn')
+    assert tool['inputSchema']['properties']['effort']['enum'] == ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']

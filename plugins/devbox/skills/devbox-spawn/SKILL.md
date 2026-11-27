@@ -16,7 +16,7 @@ devbox spawn --cwd /workspace/other --agent codex --prompt "run the migration dr
 devbox spawn --environment server --prompt "..." --json    # managed environment
 ```
 
-Flags: `--name`, `--environment` (default: yours), `--cwd DIR` or `--worktree BRANCH` (not both; the worktree is a sibling of the repo you run it from and needs the same environment as you), `--agent claude|codex`, `--model` (claude: `opus|sonnet|haiku`; codex: any model name), `--permission-mode plan|auto` (claude only), `--prompt TEXT|-`, `--json`.
+Flags: `--name`, `--environment` (default: yours), `--cwd DIR` or `--worktree BRANCH` (not both; the worktree is a sibling of the repo you run it from and needs the same environment as you), `--agent claude|codex`, `--model` (claude: `opus|sonnet|haiku`; codex: any model name), `--effort LEVEL` (claude: `low|medium|high|xhigh|max`; codex: `minimal|low|medium|high|xhigh`; unset keeps the CLI default; a restart resumes at the same effort), `--permission-mode plan|auto` (claude only), `--prompt TEXT|-`, `--json`.
 
 The parent link is taken from your detected session, never from an argument. Without a detected session the child is top-level. A parent can have `DEVBOX_SPAWN_LIMIT` live children (default 5, `0` = unlimited); past that spawn refuses, so end or reuse a child first.
 

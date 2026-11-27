@@ -404,6 +404,7 @@ def _write_resume(name, entry, payload):
     _atomic_write(os.path.join(session_dir(name), "resume.json"), json.dumps({
         "agent": entry["agent"], "session_id": entry["session_id"],
         "model": _text(spawned.get("model")) or _text(payload.get("model")),
+        "effort": _text(spawned.get("effort")),
         "permission_mode": _resume_permission_mode(name, entry, payload, spawned),
         "cwd": entry["cwd"], "updated_at": entry["updated_at"]}) + "\n")
 
@@ -428,7 +429,7 @@ def write_spawn(name, spec):
     """Record what spawn launched so hooks know which agent is the session's primary one."""
     with _locked(name):
         _atomic_write(os.path.join(session_dir(name), "spawn.json"), json.dumps(
-            {k: spec.get(k, "") for k in ("agent", "model", "permission_mode")}) + "\n")
+            {k: spec.get(k, "") for k in ("agent", "model", "effort", "permission_mode")}) + "\n")
 
 
 def read_resume(name):

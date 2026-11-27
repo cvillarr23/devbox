@@ -64,7 +64,7 @@ def msg_inbox(args):
     return messages.inbox(session, pane, unread=bool(args.get('unread')))
 
 
-SPAWN_FIELDS = ('name', 'environment', 'cwd', 'worktree', 'agent', 'model', 'permission_mode', 'prompt')
+SPAWN_FIELDS = ('name', 'environment', 'cwd', 'worktree', 'agent', 'model', 'effort', 'permission_mode', 'prompt')
 
 
 def session_spawn(args):
@@ -109,6 +109,8 @@ def _tools():
                   'worktree': _string('Branch for a new git worktree from the current repo; not with cwd'),
                   'agent': _string('Agent to run', enum=['claude', 'codex']),
                   'model': _string('Model name'),
+                  'effort': _string('Reasoning effort; claude: low, medium, high, xhigh, max; codex: minimal, low, medium, high, xhigh',
+                                    enum=['minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
                   'permission_mode': _string('Claude permission mode', enum=['plan', 'auto']),
                   'prompt': _string('Initial prompt for the agent')}), session_spawn),
     ]
