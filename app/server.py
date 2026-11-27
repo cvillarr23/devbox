@@ -2,6 +2,7 @@
 """Same-origin HTTP/WebSocket gateway for a single-user devbox."""
 import asyncio
 import contextlib
+import html
 import json
 import os
 import secrets
@@ -12,6 +13,7 @@ import aiohttp
 from aiohttp import web
 import access_auth
 import auth_relay
+import bao_login
 import bootstrap
 import devbox_store as store
 import environments
@@ -128,7 +130,8 @@ def _cookie_secure(request):
 
 
 def page(name):
-    config = {'portStart': 7690, 'publicHost': store.public_base_url(), 'tailnetHost': ''}
+    config = {'portStart': 7690, 'publicHost': store.public_base_url(), 'tailnetHost': '',
+              'bao': bool(os.environ.get('DEVBOX_BAO_ADDR', '').strip())}
     return web.Response(text=(WEB / name).read_text().replace('__DEVBOX_CONFIG__', json.dumps(config)),
                         content_type='text/html', headers={'Cache-Control': 'no-store'})
 
@@ -308,16 +311,28 @@ def _relay_page(status, message):
         f'<h1>Devbox</h1><p>{message}</p>'))
 
 
+def _log_callback(state, flow, outcome):
+    """One line per callback: a state prefix and the outcome, never the code, token or full state."""
+    print(f'oidc-callback state={state[:6] or "-"} flow={flow} outcome={outcome}', flush=True)
+
+
 async def auth_callback(request):
-    """Replay a browser's OIDC redirect to the loopback port its session registered."""
+    """Finish a dashboard OpenBao login, or replay a relay login to its session's loopback port."""
+    state = request.query.get('state', '')
+    bao = request.app['bao']
+    if bao is not None and bao.owns(state):
+        return await _bao_callback(request, bao, state)
     rt = request.app['runtime']
     try:
-        name, port = rt.auth_relay.claim(request.query.get('state', ''))
+        name, port = rt.auth_relay.claim(state)
     except auth_relay.Unknown:
+        _log_callback(state, 'relay', 'unknown')
         return _relay_page(404, 'No pending login matches this request. Start the login again from the session.')
     except auth_relay.Expired:
+        _log_callback(state, 'relay', 'expired')
         return _relay_page(410, 'This login expired. Start it again from the session.')
     if name not in rt.sessions or rt.sessions[name]['connection'] != 'connected':
+        _log_callback(state, 'relay', 'disconnected')
         return _relay_page(503, 'The session is not connected. Reconnect it and start the login again.')
     url = f'http://127.0.0.1:{await rt.loopback_port(name, port)}{auth_relay.CALLBACK_PATH}'
     if request.query_string:
@@ -327,9 +342,68 @@ async def auth_callback(request):
             ok = 200 <= upstream.status < 300
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
         ok = False
+    _log_callback(state, 'relay', 'replayed' if ok else 'failed')
     if ok:
         return _relay_page(200, 'Signed in. You can close this tab.')
     return _relay_page(502, 'The session did not accept the login. Start it again from the session.')
+
+
+async def _bao_callback(request, bao, state):
+    try:
+        nonce = bao.claim(state)
+    except auth_relay.Expired:
+        _log_callback(state, 'bao', 'expired')
+        return _relay_page(410, 'This OpenBao login expired (logins last 5 minutes). Start it again from the dashboard.')
+    except auth_relay.Unknown:
+        # Raced with another tab using the same link.
+        _log_callback(state, 'bao', 'unknown')
+        return _relay_page(404, 'This OpenBao login was already used. Start it again from the dashboard.')
+    try:
+        ttl = await bao.finish(request.app['client'], state, nonce, request.query)
+    except bao_login.BaoError as exc:
+        _log_callback(state, 'bao', 'failed')
+        return _relay_page(502, 'OpenBao login failed: ' + html.escape(str(exc)))
+    except OSError as exc:
+        _log_callback(state, 'bao', 'write-failed')
+        return _relay_page(500, 'Signed in, but the token could not be saved: ' + html.escape(exc.strerror or type(exc).__name__))
+    _log_callback(state, 'bao', 'claimed')
+    expiry = f' It expires in {ttl // 60} min.' if isinstance(ttl, int) and ttl > 0 else ''
+    return _relay_page(200, 'Logged in to OpenBao. The token is in ~/.vault-token for every session.'
+                       + expiry + ' You can close this tab.')
+
+
+def _dashboard_only(request):
+    """Agents reach the server over the Unix socket; these routes are for a signed-in browser."""
+    if _policy(request) == 'unix':
+        raise web.HTTPForbidden(text='Only the dashboard can do this')
+    if request.method != 'GET' and not request.headers.get('Origin'):
+        raise web.HTTPForbidden(text='Origin header required')
+
+
+async def bao_status(request):
+    _dashboard_only(request)
+    bao = request.app['bao']
+    if bao is None:
+        return web.json_response({'enabled': False})
+    try:
+        return web.json_response(await bao.status(request.app['client']))
+    except bao_login.BaoError as exc:
+        return web.json_response({'enabled': True, 'error': str(exc)})
+
+
+async def bao_start(request):
+    _dashboard_only(request)
+    bao = request.app['bao']
+    if bao is None:
+        raise web.HTTPNotFound()
+    base = store.public_base_url()
+    if not base:
+        raise ValueError('DEVBOX_PUBLIC_URL is not set; devbox has no public callback')
+    try:
+        url = await bao.start(request.app['client'], bao_login.redirect_uri(base))
+    except bao_login.BaoError as exc:
+        return web.json_response({'error': str(exc)}, status=502)
+    return web.json_response({'auth_url': url}, headers={'Cache-Control': 'no-store'})
 
 
 async def spawn_top_level(request):
@@ -390,6 +464,7 @@ def create_app(runtime=None):
         raise ValueError('DEVBOX_AUTH_MODE must be token, proxy or cloudflare-access')
     app['auth'] = auth
     app['token_port'] = _token_port()
+    app['bao'] = bao_login.from_env()
     if auth == 'cloudflare-access':
         app['access'] = access_auth.CloudflareAccess.from_env()
     if auth == 'token' or app['token_port'] is not None:
@@ -422,6 +497,8 @@ def create_app(runtime=None):
     app.router.add_get('/api/environments', targets)
     app.router.add_post('/api/environments/{name}/bootstrap', targets)
     app.router.add_get('/api/doctor', doctor)
+    app.router.add_get('/api/bao', bao_status)
+    app.router.add_post('/api/bao/login', bao_start)
     return app
 
 
