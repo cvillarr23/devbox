@@ -18,6 +18,9 @@
 | `DEVBOX_CHROME` | `google-chrome` | Browser executable for a derived image, such as `chromium` on arm64 ([host Chrome](host-chrome.md)) |
 | `DEVBOX_SPAWN_LIMIT` | `5` | Most live child sessions one parent may `devbox spawn`; `0` disables the limit |
 | `DEVBOX_PUBLIC_URL` | unset (`devbox spawn` prints `http://localhost:$DEVBOX_PORT`) | Public origin, for example `https://devbox-next.roo-net.cc`. Sets `publicHost` in the dashboard config and adds an absolute `view_url` to each session in the API and to `devbox-session --json`; `devbox spawn` prints it too |
+| `DEVBOX_BAO_ADDR` | unset | OpenBao address the server itself calls, for example `http://openbao.openbao.svc:8200`. Turns on the dashboard's **Log in to OpenBao** button ([OpenBao login](#openbao-login-from-the-dashboard)); unset hides it and changes nothing else |
+| `DEVBOX_BAO_ROLE` | `admin` | OIDC role for the dashboard login |
+| `DEVBOX_BAO_MOUNT` | `oidc` | Path of the OIDC auth mount (`auth/<mount>`) |
 | `DEVBOX_TRUST_PROXY` | unset | Set `1` to honor `X-Forwarded-Proto: https` for the session cookie's `Secure` flag. Off by default because any client can send the header |
 | `DEVBOX_CLAUDE_REMOTE_CONTROL` | `1` | `0`, `false`, `no` or `off` stops devbox from enabling Claude remote control at startup. Devbox sets `remoteControlAtStartup` in `~/.claude/settings.json` (local home at each start, remote targets at bootstrap) only when the key is absent, so a value you set is kept, and a pre-existing file is backed up to `settings.json.pre-devbox`. A symlinked `settings.json` (for example from a dotfiles installer) is never written through; see [Hooks and bootstrap](#hooks-and-bootstrap) |
 | `DEVBOX_SOCKET` | `/tmp/devbox-control.sock` | Private local CLI socket, mode 0600 |
@@ -128,6 +131,20 @@ The command prints an authorization URL. `auth-relay` registers its `state` with
 - Registration is refused unless the URL's `redirect_uri` is this devbox's callback, and for ports below 1024 or ports devbox itself uses. Unknown, expired and already-used `state` values get a 4xx and nothing is replayed.
 - With no `DEVBOX_PUBLIC_URL`, `auth-relay` reports why it can't relay and the command keeps running, so the callback URL can still be pasted back by hand.
 - `gh auth login --web` needs none of this: it uses the device-code flow.
+
+## OpenBao login from the dashboard
+
+With `DEVBOX_BAO_ADDR` and `DEVBOX_PUBLIC_URL` set, the dashboard shows **Log in to OpenBao** and the token status ("Logged in as …, expires in N min", from `auth/token/lookup-self` on the server). No agent or CLI is involved:
+
+1. The button calls `POST /api/bao/login`. The server calls OpenBao's `auth/<mount>/oidc/auth_url` with `role`, `redirect_uri=<DEVBOX_PUBLIC_URL>/oidc/callback` and a fresh random `client_nonce`, remembers the returned `state` with that nonce for 5 minutes, and the browser opens the sign-in URL in a new tab.
+2. After sign-in, `/oidc/callback` sees a state this flow minted, removes it (single use), and calls `auth/<mount>/oidc/callback` with `state`, `code` and the nonce. The token is written atomically to `$HOME/.vault-token` of the server's user, mode 0600, where `bao` in every local session finds it. The page says whether it worked and why not (already used, expired, or OpenBao's error); it never shows the code or token.
+3. Any other state goes to `devbox auth-relay` as before.
+
+The OIDC role and the OAuth client must allow `<DEVBOX_PUBLIC_URL>/oidc/callback` (and the `:443` form). OpenBao answers an unregistered redirect URI with an empty URL; the button reports that.
+
+Security: the start route is refused on the Unix socket (which agents and the `devbox` CLI use) and needs an `Origin` header matching the host, a JSON body and the listener's normal auth (Access JWT, or the token on `DEVBOX_TOKEN_PORT`). The callback needs the same auth as the rest of the app, so only the signed-in user's browser completes it. `~/.vault-token` carries the same trust as running `bao login` in a terminal: every session and agent running as that Unix user in the pod can read it.
+
+Every `/oidc/callback` request, for both flows, logs one line: `oidc-callback state=<first 6 chars> flow=bao|relay outcome=<claimed|replayed|unknown|expired|disconnected|failed|write-failed>`. Codes, nonces, tokens and full states are never logged.
 
 ## Network behavior
 
