@@ -79,7 +79,7 @@ def session_kill(args):
     if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
         raise ValueError('names must be a non-empty list of session names')
     caller = cli.current_session()['session']
-    result = cli.invoke(caller, 'kill', {'names': names, 'self': caller in names, 'children_only': True})
+    result = cli.invoke(caller, 'kill', {'names': names, 'self': caller in names})
     return result
 
 

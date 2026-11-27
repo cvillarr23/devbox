@@ -168,7 +168,7 @@ def _kill_runtime(state, states, links):
 
 @pytest.mark.asyncio
 async def test_kill_guards_unknown_and_self(state):
-    rt = _kill_runtime(state, {}, {})
+    rt = _kill_runtime(state, {}, {'other': 'pm'})
     with pytest.raises(ValueError, match='--self'):
         await rt.operation('pm', 'kill', {'names': ['pm']})
     with pytest.raises(ValueError, match='Unknown session'):
@@ -202,10 +202,30 @@ async def test_kill_children_filters_by_parent_and_state(state, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_kill_children_only_restriction(state):
-    rt = _kill_runtime(state, {}, {'a': 'pm'})
+async def test_kill_restriction(state):
+    rt = _kill_runtime(state, {}, {'a': 'pm', 'b': 'a'})
     with pytest.raises(ValueError, match='not a child'):
-        await rt.operation('pm', 'kill', {'names': ['other'], 'children_only': True})
-    assert await rt.operation('pm', 'kill', {'names': ['a'], 'children_only': True}) == {'ended': ['a']}
-    assert (await rt.operation('pm', 'kill', {'names': ['pm'], 'self': True, 'children_only': True, 'delay': 0}))['ended'] == ['pm']
+        await rt.operation('pm', 'kill', {'names': ['other']})
+    assert await rt.operation('pm', 'kill', {'names': ['a', 'b']}) == {'ended': ['a', 'b']}
+    assert await rt.operation('pm', 'kill', {'names': ['other']}, restricted=False) == {'ended': ['other']}
+    assert (await rt.operation('pm', 'kill', {'names': ['pm'], 'self': True, 'delay': 0}))['ended'] == ['pm']
     await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_socket_kill_of_non_child_refused_without_client_flag(state, tmp_path):
+    rt = _kill_runtime(state, {}, {'a': 'pm'})
+    app = server.create_app(rt)
+    app['socket'] = str(tmp_path / 's.sock')
+    from aiohttp import web
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.UnixSite(runner, app['socket']).start()
+    import aiohttp
+    async with aiohttp.ClientSession(connector=aiohttp.UnixConnector(path=app['socket'])) as http:
+        r = await http.post('http://x/api/sessions/pm/kill', json={'names': ['other']})
+        assert r.status == 400 and 'not a child' in (await r.text())
+        r = await http.post('http://x/api/sessions/pm/kill', json={'names': ['a']})
+        assert r.status == 200
+    rt.kill.assert_awaited_once_with('a')
+    await runner.cleanup()

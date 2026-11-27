@@ -215,24 +215,35 @@ class Runtime:
                 and self.status(c)['state'] in ('done', 'idle')
                 and not (self.sessions[c]['target']['type'] == 'local' and messages.pending(c, None, urgent_only=True))]
 
-    async def kill_sessions(self, caller, args):
+    def _descendants(self, caller):
+        found, queue = set(), [caller]
+        while queue:
+            for child in store.children(queue.pop()):
+                if child not in found and child != caller:
+                    found.add(child)
+                    queue.append(child)
+        return found
+
+    async def kill_sessions(self, caller, args, restricted=True):
         """End sessions on behalf of CALLER. The restrictions live here, where the
-        caller is known: ending yourself needs `self`; `children_only` (the MCP
-        tool) limits targets to the caller's own children and itself.
+        caller is known: ending yourself needs `self`, and RESTRICTED (every agent
+        path: the control socket and the remote relay; only the authenticated
+        HTTP API is unrestricted) limits targets to the caller's descendants and
+        itself. A guard against mistakes, not a boundary against a hostile agent.
         With `dry_run` nothing is ended and the resolved list is returned."""
         names = list(dict.fromkeys(args.get('names') or []))
         if args.get('children'):
             names += [c for c in self._finished_children(caller) if c not in names]
         if not names:
             raise ValueError('Name a session to end, or use --children with finished children')
-        own = set(store.children(caller))
+        own = self._descendants(caller)
         for target in names:
             if target not in self.sessions:
                 raise ValueError(f'Unknown session: {target}')
             if target == caller:
                 if not args.get('self'):
                     raise ValueError(f'{target} is the calling session; pass --self to end it')
-            elif args.get('children_only') and target not in own:
+            elif restricted and target not in own:
                 raise ValueError(f'{target} is not a child of {caller}; you can only end your own children and yourself')
         if args.get('dry_run'):
             return {'would_end': names}
@@ -348,7 +359,7 @@ class Runtime:
     def _session_url(name):
         return store.public_view_url(name) or 'http://localhost:' + os.environ.get('DEVBOX_PORT', '7680') + '/view/' + name
 
-    async def operation(self, name, operation, args):
+    async def operation(self, name, operation, args, restricted=True):
         if name not in self.sessions:
             raise ValueError('Unknown session')
         if operation == 'doctor':
@@ -364,7 +375,7 @@ class Runtime:
         if operation == 'spawn':
             return await self.spawn(name, args)
         if operation == 'kill':
-            return await self.kill_sessions(name, args)
+            return await self.kill_sessions(name, args, restricted)
         if operation == 'msg-send':
             return await message_router.send(self, name, args)
         if operation == 'msg-config':

@@ -183,5 +183,5 @@ def test_session_kill_sends_restricted_request(tmp_path, control):
     (r1, r2, r3) = run_server([call(1, 'session_kill', names=['kid']), call(2, 'session_kill', names=['s1']),
                                call(3, 'session_kill', names=[])], tmp_path, socket=control.server_address)
     assert not r1['result']['isError'] and not r2['result']['isError'] and r3['result']['isError']
-    assert control.requests[0] == ('/api/sessions/s1/kill', {'names': ['kid'], 'self': False, 'children_only': True})
-    assert control.requests[1][1]['self'] is True and control.requests[1][1]['children_only'] is True
+    assert control.requests[0] == ('/api/sessions/s1/kill', {'names': ['kid'], 'self': False})
+    assert control.requests[1][1]['self'] is True
