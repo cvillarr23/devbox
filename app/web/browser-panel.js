@@ -21,7 +21,7 @@
     panel.hidden = false;
     try {
       if(start) await browserRequest('POST');
-      if(!frame.getAttribute('src')) frame.src='/browser/vnc.html?autoconnect=true&resize=remote&path=browser/websockify';
+      if(!frame.getAttribute('src')) frame.src='/browser/vnc.html?autoconnect=true&resize=scale&path=browser/websockify';
       error.textContent='';
     } catch(e) {error.textContent=e.message;}
   }

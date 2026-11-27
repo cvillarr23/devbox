@@ -143,6 +143,9 @@ and noVNC path with `DEVBOX_CHROME=chromium`, uses its own profile in
 Browser panel. It is the fallback when neither host path fits, for example on
 Kubernetes targets.
 
+The Browser panel shows a fixed 1440x900 Xvfb desktop and noVNC scales it to fit the
+panel (`resize=scale`), so the whole window is visible at any panel width.
+
 For the multi-arch image: install `chromium` on arm64 and keep `google-chrome`
 on amd64, default `DEVBOX_CHROME` per architecture, and make `devbox doctor`
 check `$DEVBOX_CHROME` instead of the hardcoded `google-chrome`.
