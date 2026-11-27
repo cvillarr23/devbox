@@ -1,8 +1,8 @@
 #!/bin/sh
 # Consistent backup and restore of devbox persistent volumes.
 #
-#   devbox-backup.sh k8s backup  [-n NAMESPACE] [-d DEPLOYMENT] [--argo-app APP] [-o DIR]
-#   devbox-backup.sh k8s restore DIR [-n NAMESPACE] [-d DEPLOYMENT] [--argo-app APP]
+#   devbox-backup.sh k8s backup  [-n NAMESPACE] [-d DEPLOYMENT] [--argo-app APP] [--argo-parent APP] [-o DIR]
+#   devbox-backup.sh k8s restore DIR [-n NAMESPACE] [-d DEPLOYMENT] [--argo-app APP] [--argo-parent APP]
 #   devbox-backup.sh docker backup  [-c CONTAINER] [-o DIR]
 #   devbox-backup.sh docker restore DIR [-c CONTAINER]
 #
@@ -16,9 +16,9 @@ set -eu
 die() { echo "devbox-backup: $*" >&2; exit 1; }
 log() { echo "devbox-backup: $*" >&2; }
 
-NAMESPACE=devbox-trial DEPLOYMENT=devbox ARGO_APP= CONTAINER=devbox OUT= HELPER=devbox-backup-helper
+NAMESPACE=devbox-trial DEPLOYMENT=devbox ARGO_APP= ARGO_PARENT= CONTAINER=devbox OUT= HELPER=devbox-backup-helper
 ARGO_NAMESPACE=${ARGO_NAMESPACE:-argocd}
-REPLICAS= ARGO_SYNC= RESTORE_DIR= PARTIAL_RESTORE=
+REPLICAS= ARGO_SYNC= ARGO_PARENT_SYNC= RESTORE_DIR= PARTIAL_RESTORE=
 
 # Archive a volume's entries, not "." itself: on rawfile PVCs the volume root (and lost+found)
 # belongs to root, and restoring "." as UID 1000 would fail trying to reset its mode and times.
@@ -33,6 +33,7 @@ parse_args() {
       -c) CONTAINER=$2; shift 2 ;;
       -o) OUT=$2; shift 2 ;;
       --argo-app) ARGO_APP=$2; shift 2 ;;
+      --argo-parent) ARGO_PARENT=$2; shift 2 ;;
       -*) die "unknown option $1" ;;
       *) [ -z "$RESTORE_DIR" ] || die "unexpected argument $1"; RESTORE_DIR=$1; shift ;;
     esac
@@ -65,19 +66,37 @@ deployment_selector() {
 }
 
 # Argo CD self-heal would scale the deployment straight back up, so automated sync is
-# paused for the copy and put back exactly as it was afterwards.
+# paused for the copy and put back exactly as it was afterwards. An app-of-apps parent with
+# self-heal re-applies the child Application's spec (and its automated sync) within a second,
+# so --argo-parent pauses the parent first and restores it last.
+argo_get_sync() { kubectl -n "$ARGO_NAMESPACE" get application "$1" -o jsonpath='{.spec.syncPolicy.automated}'; }
+
+argo_patch_sync() { kubectl -n "$ARGO_NAMESPACE" patch application "$1" --type merge -p "{\"spec\":{\"syncPolicy\":{\"automated\":$2}}}" >/dev/null; }
+
 pause_argo_sync() {
+  if [ -n "$ARGO_PARENT" ]; then
+    ARGO_PARENT_SYNC=$(argo_get_sync "$ARGO_PARENT")
+    if [ -n "$ARGO_PARENT_SYNC" ]; then
+      log "pausing automated sync of parent Argo CD application $ARGO_PARENT"
+      argo_patch_sync "$ARGO_PARENT" null
+    fi
+  fi
   [ -n "$ARGO_APP" ] || return 0
-  ARGO_SYNC=$(kubectl -n "$ARGO_NAMESPACE" get application "$ARGO_APP" -o jsonpath='{.spec.syncPolicy.automated}')
+  ARGO_SYNC=$(argo_get_sync "$ARGO_APP")
   [ -n "$ARGO_SYNC" ] || return 0
   log "pausing automated sync of Argo CD application $ARGO_APP"
-  kubectl -n "$ARGO_NAMESPACE" patch application "$ARGO_APP" --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' >/dev/null
+  argo_patch_sync "$ARGO_APP" null
 }
 
 resume_argo_sync() {
-  [ -n "$ARGO_SYNC" ] || return 0
-  log "restoring automated sync of Argo CD application $ARGO_APP"
-  kubectl -n "$ARGO_NAMESPACE" patch application "$ARGO_APP" --type merge -p "{\"spec\":{\"syncPolicy\":{\"automated\":$ARGO_SYNC}}}" >/dev/null
+  if [ -n "$ARGO_SYNC" ]; then
+    log "restoring automated sync of Argo CD application $ARGO_APP"
+    argo_patch_sync "$ARGO_APP" "$ARGO_SYNC"
+  fi
+  if [ -n "$ARGO_PARENT_SYNC" ]; then
+    log "restoring automated sync of parent Argo CD application $ARGO_PARENT"
+    argo_patch_sync "$ARGO_PARENT" "$ARGO_PARENT_SYNC"
+  fi
 }
 
 refuse_unpaused_argo() {
@@ -151,6 +170,7 @@ _report_partial_restore() {
   log "restore did not finish; $NAMESPACE/$DEPLOYMENT stays at 0 replicas on partly restored volumes"
   log "rerun the restore, then: kubectl -n $NAMESPACE scale deployment $DEPLOYMENT --replicas=$REPLICAS"
   [ -z "$ARGO_SYNC" ] || log "and restore Argo CD sync: kubectl -n $ARGO_NAMESPACE patch application $ARGO_APP --type merge -p '{\"spec\":{\"syncPolicy\":{\"automated\":$ARGO_SYNC}}}'"
+  [ -z "$ARGO_PARENT_SYNC" ] || log "and for the parent: kubectl -n $ARGO_NAMESPACE patch application $ARGO_PARENT --type merge -p '{\"spec\":{\"syncPolicy\":{\"automated\":$ARGO_PARENT_SYNC}}}'"
 }
 
 k8s_backup() {
