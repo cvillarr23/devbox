@@ -65,6 +65,7 @@ class Runtime:
         self.path = Path(store.state_dir()) / 'runtime.json'
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.sessions = json.loads(self.path.read_text()) if self.path.exists() else {}
+        self._deferred = set()
         # Connected when the last server stopped (or died): recreated by restore().
         self.to_restore = [n for n, e in self.sessions.items()
                            if e.get('restore') or e.get('connection') == 'connected']
@@ -208,6 +209,60 @@ class Runtime:
             folder.rename(archive / f'{name}-{time.time_ns()}')
         self.save()
 
+    def _finished_children(self, caller):
+        """Live children of CALLER that are done or idle with no unread urgent messages."""
+        return [c for c in store.children(caller) if c in self.sessions
+                and self.status(c)['state'] in ('done', 'idle')
+                and not (self.sessions[c]['target']['type'] == 'local' and messages.pending(c, None, urgent_only=True))]
+
+    def _descendants(self, caller):
+        found, queue = set(), [caller]
+        while queue:
+            for child in store.children(queue.pop()):
+                if child not in found and child != caller:
+                    found.add(child)
+                    queue.append(child)
+        return found
+
+    async def kill_sessions(self, caller, args, restricted=True):
+        """End sessions on behalf of CALLER. The restrictions live here, where the
+        caller is known: ending yourself needs `self`, and RESTRICTED (every agent
+        path: the control socket and the remote relay; only the authenticated
+        HTTP API is unrestricted) limits targets to the caller's descendants and
+        itself. A guard against mistakes, not a boundary against a hostile agent.
+        With `dry_run` nothing is ended and the resolved list is returned."""
+        names = list(dict.fromkeys(args.get('names') or []))
+        if args.get('children'):
+            names += [c for c in self._finished_children(caller) if c not in names]
+        if not names:
+            raise ValueError('Name a session to end, or use --children with finished children')
+        own = self._descendants(caller)
+        for target in names:
+            if target not in self.sessions:
+                raise ValueError(f'Unknown session: {target}')
+            if target == caller:
+                if not args.get('self'):
+                    raise ValueError(f'{target} is the calling session; pass --self to end it')
+            elif restricted and target not in own:
+                raise ValueError(f'{target} is not a child of {caller}; you can only end your own children and yourself')
+        if args.get('dry_run'):
+            return {'would_end': names}
+        ended = []
+        for target in [n for n in names if n != caller]:
+            await self.kill(target)
+            ended.append(target)
+        if caller in names:
+            # reply first: ending the caller also ends the agent waiting on this answer
+            loop = asyncio.get_running_loop()
+            loop.call_later(args.get('delay', 1), self._end_later, caller)
+            ended.append(caller)
+        return {'ended': ended}
+
+    def _end_later(self, name):
+        task = asyncio.get_running_loop().create_task(self.kill(name))
+        self._deferred.add(task)
+        task.add_done_callback(self._deferred.discard)
+
     def status(self, name):
         entry = self.sessions[name]
         proc = self.children.get(name)
@@ -304,7 +359,7 @@ class Runtime:
     def _session_url(name):
         return store.public_view_url(name) or 'http://localhost:' + os.environ.get('DEVBOX_PORT', '7680') + '/view/' + name
 
-    async def operation(self, name, operation, args):
+    async def operation(self, name, operation, args, restricted=True):
         if name not in self.sessions:
             raise ValueError('Unknown session')
         if operation == 'doctor':
@@ -319,6 +374,8 @@ class Runtime:
             return {'ok': True}
         if operation == 'spawn':
             return await self.spawn(name, args)
+        if operation == 'kill':
+            return await self.kill_sessions(name, args, restricted)
         if operation == 'msg-send':
             return await message_router.send(self, name, args)
         if operation == 'msg-config':

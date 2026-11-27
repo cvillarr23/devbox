@@ -73,6 +73,16 @@ def session_spawn(args):
     return cli.spawn_session({**data, 'origin_cwd': os.getcwd()})
 
 
+def session_kill(args):
+    import cli
+    names = args.get('names')
+    if not isinstance(names, list) or not names or not all(isinstance(n, str) and n for n in names):
+        raise ValueError('names must be a non-empty list of session names')
+    caller = cli.current_session()['session']
+    result = cli.invoke(caller, 'kill', {'names': names, 'self': caller in names})
+    return result
+
+
 def _string(description, **extra):
     return {'type': 'string', 'description': description, **extra}
 
@@ -113,6 +123,11 @@ def _tools():
                                     enum=['minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
                   'permission_mode': _string('Claude permission mode', enum=['plan', 'auto']),
                   'prompt': _string('Initial prompt for the agent')}), session_spawn),
+        ('session_kill', 'End devbox sessions: your own children, or this session itself (listing its own name). '
+                         'Other sessions are refused.',
+         _schema({'names': {'type': 'array', 'items': {'type': 'string'},
+                            'description': 'Session names to end: your children and/or this session'}},
+                 ['names']), session_kill),
     ]
 
 
