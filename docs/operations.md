@@ -53,6 +53,7 @@ scripts/devbox-backup.sh k8s restore ~/backups/devbox/devbox-trial-<timestamp> -
 - Restore first checks the checksums and that every mounted PVC has an archive. It then empties each volume (keeping `lost+found`) and unpacks the archive.
 - Restore into a new PVC: create it with the same name, then run restore.
 - `--argo-app` is required for a Deployment that Argo CD manages. Without it, self-heal would scale devbox back up in the middle of the copy. The script pauses the Application's automated sync, then puts the original policy back on exit. Set `ARGO_NAMESPACE` if Argo CD doesn't run in `argocd`.
+- `--argo-parent APP` is also needed when the Application has an app-of-apps parent with self-heal (homelab: `root-gitops-bootstrap`). The parent re-applies the child Application's spec, including its automated sync, about a second after the script pauses it, so self-heal still scales devbox back up and the script fails with "devbox pods are still running". With `--argo-parent`, the script pauses the parent first, then the app, and restores the app, then the parent, on exit, also on failure. On the homelab: `--argo-app devbox-trial --argo-parent root-gitops-bootstrap`.
 
 ### Docker
 
