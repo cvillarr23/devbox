@@ -12,6 +12,7 @@ ARG CODEX_VERSION=0.160.0
 ARG CLAUDE_VERSION=2.1.289
 ARG KUBECTL_VERSION=v1.35.8
 ARG GH_VERSION=2.105.0
+ARG BAO_VERSION=2.6.1
 ARG CHROME_VERSION=154.0.8037.97-1
 ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git zsh openssh-client python3 python3-venv libjson-c5 libwebsockets17 libwebsockets-evlib-uv libuv1 libssl3 zlib1g tini xvfb x11vnc openbox novnc websockify fonts-liberation fonts-dejavu procps htop xauth jq && rm -rf /var/lib/apt/lists/*
@@ -20,6 +21,7 @@ RUN curl --retry 3 --retry-all-errors -fsSLo /tmp/chrome.deb "https://dl.google.
 RUN case "$TARGETARCH" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; esac && base="https://github.com/zellij-org/zellij/releases/download/v${ZELLIJ_VERSION}/zellij-${arch}-unknown-linux-musl" && curl --retry 3 --retry-all-errors -fsSLo /tmp/zellij.tar.gz "$base.tar.gz" && curl --retry 3 --retry-all-errors -fsSLo /tmp/zellij.sha256 "$base.sha256sum" && tar -xzf /tmp/zellij.tar.gz -C /tmp zellij && (cd /tmp && sha256sum -c /tmp/zellij.sha256) && install -m755 /tmp/zellij /usr/local/bin/zellij && rm /tmp/zellij /tmp/zellij.tar.gz /tmp/zellij.sha256
 RUN curl --retry 3 --retry-all-errors -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" && curl --retry 3 --retry-all-errors -fsSLo /tmp/kubectl.sha256 "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256" && echo "$(cat /tmp/kubectl.sha256)  /usr/local/bin/kubectl" | sha256sum -c && chmod +x /usr/local/bin/kubectl && rm /tmp/kubectl.sha256
 RUN base="https://github.com/cli/cli/releases/download/v${GH_VERSION}" && tarball="gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" && curl --retry 3 --retry-all-errors -fsSLo "/tmp/$tarball" "$base/$tarball" && curl --retry 3 --retry-all-errors -fsSLo /tmp/gh_checksums.txt "$base/gh_${GH_VERSION}_checksums.txt" && (cd /tmp && grep " $tarball\$" gh_checksums.txt | sha256sum -c) && tar -xzf "/tmp/$tarball" -C /tmp && install -m755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh && rm -rf /tmp/gh_*
+RUN base="https://github.com/openbao/openbao/releases/download/v${BAO_VERSION}" && tarball="openbao_${BAO_VERSION}_linux_${TARGETARCH}.tar.gz" && curl --retry 3 --retry-all-errors -fsSLo "/tmp/$tarball" "$base/$tarball" && curl --retry 3 --retry-all-errors -fsSLo /tmp/bao_checksums.txt "$base/checksums.txt" && (cd /tmp && grep " $tarball\$" bao_checksums.txt | sha256sum -c) && tar -xzf "/tmp/$tarball" -C /tmp bao && install -m755 /tmp/bao /usr/local/bin/bao && rm -f /tmp/bao /tmp/bao_checksums.txt "/tmp/$tarball"
 RUN npm install -g @openai/codex@${CODEX_VERSION} @anthropic-ai/claude-code@${CLAUDE_VERSION} && npm cache clean --force
 COPY --from=ttyd-build /src/build/ttyd /usr/local/bin/ttyd
 COPY --from=ttyd-build /ttyd-source.tar.gz /usr/local/share/devbox/ttyd-source.tar.gz

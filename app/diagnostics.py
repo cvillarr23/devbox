@@ -32,7 +32,8 @@ def confinement():
             'seccomp': int(seccomp) if seccomp and seccomp.isdigit() else None}
 
 
-MISSING_HINTS = {'gh': 'Rebuild the image; the GitHub CLI is installed from the pinned GH_VERSION release.'}
+MISSING_HINTS = {'gh': 'Rebuild the image; the GitHub CLI is installed from the pinned GH_VERSION release.',
+                 'bao': 'Rebuild the image; the OpenBao CLI is installed from the pinned BAO_VERSION release.'}
 
 
 def _hooks_present(path):
@@ -93,7 +94,7 @@ def report():
         ('codex', ['--version']), ('claude', ['--version']), ('zellij', ['--version']),
         ('ttyd', ['--version']), ('google-chrome', ['--version']), ('node', ['--version']),
         ('python3', ['--version']), ('git', ['--version']),
-        ('kubectl', ['version', '--client', '-o', 'json']), ('gh', ['--version']),
+        ('kubectl', ['version', '--client', '-o', 'json']), ('gh', ['--version']), ('bao', ['version']),
     ):
         executable = shutil.which(name)
         entry = {'available': bool(executable)}

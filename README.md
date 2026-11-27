@@ -47,7 +47,7 @@ Home, agent login configuration, Chrome's profile, and session state persist in 
 
 To use `gh`, run `gh auth login` in a session and choose the device-code flow, which needs no loopback callback. The token is stored in `~/.config/gh` and persists in the home volume; nothing is baked into the image.
 
-Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), and Chrome versions. Agent self-update is disabled; Codex and Claude Code versions change only through a new release (see [configuration](docs/configuration.md#agent-versions)). Extend the Dockerfile for project-specific dependencies.
+Images are published for `linux/amd64` and `linux/arm64` under the same tag, so Docker pulls the native build. The initial release includes pinned Codex, Claude Code, Zellij, ttyd, Node, Python, kubectl, the GitHub CLI (`gh`), the OpenBao CLI (`bao`), and Chrome versions. Agent self-update is disabled; Codex and Claude Code versions change only through a new release (see [configuration](docs/configuration.md#agent-versions)). Extend the Dockerfile for project-specific dependencies.
 
 Pull requests from branches in this repository also publish `ghcr.io/cvillarr23/devbox:pr-<number>` (plus `sha-<short>`) once CI passes, so a change can run in a real pod before merge. Fork PRs publish nothing. PR tags are not cleaned up automatically; delete stale `pr-*` versions from the package page.
 
